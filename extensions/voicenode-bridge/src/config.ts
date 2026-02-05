@@ -13,19 +13,37 @@ export interface BridgeConfig {
 }
 
 const DEFAULT_ALLOWED_TOOLS = [
+  // Messaging
   "sms_*",
   "whatsapp_*",
+  "email_*",
+  "slack_*",
+  // CRM & Sales
   "hubspot_*",
-  "stripe_*",
   "salesforce_*",
   "apollo_*",
+  "lead_manager_*",
+  // E-commerce
   "shopify_*",
+  "amazon_*",
+  // Finance & Trading
+  "stripe_*",
   "quickbooks_*",
-  "email_*",
+  "alpaca_*",
+  // Content & Documents
   "copywriter_*",
-  "slack_*",
-  "calcom_*",
   "document_*",
+  "esignature_*",
+  // Scheduling
+  "calcom_*",
+  "calendly_*",
+  // Dashboard & Widgets
+  "dashboard_*",
+  "widget_*",
+  // Social
+  "reddit_*",
+  // Allow all tools with wildcard (plug & play)
+  "*",
 ];
 
 /**
@@ -39,22 +57,26 @@ export function loadConfig(
   const envPort = process.env.OPENCLAW_VOICENODE_BRIDGE_PORT;
   const envToken = process.env.OPENCLAW_VOICENODE_BRIDGE_TOKEN;
 
+  // Handle nested config structure from openclaw.json: { config: { ... } }
+  const nestedConfig = (pluginConfig.config as Record<string, unknown>) ?? {};
+  const effectiveConfig = { ...nestedConfig, ...pluginConfig };
+
   return {
     enabled:
       envEnabled !== undefined
         ? envEnabled === "true"
-        : ((pluginConfig.enabled as boolean) ?? false),
+        : ((effectiveConfig.enabled as boolean) ?? false),
 
     port:
       envPort !== undefined
         ? parseInt(envPort, 10)
-        : ((pluginConfig.port as number) ?? 9100),
+        : ((effectiveConfig.port as number) ?? 9100),
 
-    token: envToken ?? (pluginConfig.token as string) ?? "",
+    token: envToken ?? (effectiveConfig.token as string) ?? "",
 
-    toolCallTimeout: (pluginConfig.toolCallTimeout as number) ?? 30000,
+    toolCallTimeout: (effectiveConfig.toolCallTimeout as number) ?? 30000,
 
     allowedTools:
-      (pluginConfig.allowedTools as string[]) ?? DEFAULT_ALLOWED_TOOLS,
+      (effectiveConfig.allowedTools as string[]) ?? DEFAULT_ALLOWED_TOOLS,
   };
 }

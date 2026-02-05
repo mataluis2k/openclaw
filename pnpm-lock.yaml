@@ -510,6 +510,8 @@ importers:
         specifier: workspace:*
         version: link:../..
 
+  extensions/voicenode-bridge: {}
+
   extensions/whatsapp:
     devDependencies:
       openclaw:

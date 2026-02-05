@@ -22,6 +22,7 @@ import { BridgeServer } from "./src/bridge-server.js";
 import { loadConfig } from "./src/config.js";
 
 let bridge: BridgeServer | null = null;
+let registered = false;
 
 /**
  * Build a GatewayDispatcher that routes chat messages into OpenClaw's
@@ -82,6 +83,12 @@ const plugin = {
     "Bilateral WebSocket bridge for voiceNode tool execution and chat",
 
   register(api: OpenClawPluginApi) {
+    // Guard against re-registration (can happen during hot reload)
+    if (registered && bridge) {
+      api.logger.info("[voicenode-bridge] already registered, skipping re-registration");
+      return;
+    }
+
     const config = loadConfig(api.pluginConfig ?? {});
 
     if (!config.enabled) {
@@ -179,7 +186,10 @@ Pass the exact tool name and its arguments.`,
           details: payload,
         });
 
+        api.logger.info(`[voicenode-bridge] tool execute: bridge=${!!bridge}, connected=${bridge?.isClientConnected()}`);
+
         if (!bridge?.isClientConnected()) {
+          api.logger.warn(`[voicenode-bridge] tool call rejected: voiceNode not connected`);
           return json({ error: "voiceNode client not connected" });
         }
 
@@ -207,6 +217,7 @@ Pass the exact tool name and its arguments.`,
       },
     });
 
+    registered = true;
     api.logger.info(
       `[voicenode-bridge] registered (port=${config.port}, tool=voicenode_tool)`,
     );
