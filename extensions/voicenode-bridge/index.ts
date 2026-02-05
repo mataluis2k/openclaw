@@ -84,45 +84,44 @@ const plugin = {
 
   register(api: OpenClawPluginApi) {
     // Guard against re-registration (can happen during hot reload)
-    if (registered && bridge) {
+    if (registered) {
       api.logger.info("[voicenode-bridge] already registered, skipping re-registration");
       return;
     }
 
     const config = loadConfig(api.pluginConfig ?? {});
 
-    if (!config.enabled) {
-      api.logger.info("[voicenode-bridge] disabled");
-      return;
-    }
-
-    if (!config.token) {
-      api.logger.warn(
-        "[voicenode-bridge] enabled but no token configured — skipping",
+    // Initialize the bridge server lazily — only when enabled + token set.
+    // Tool/service/route registration is always done so the tool shows up
+    // in listings regardless of runtime config.
+    const ensureBridge = (): BridgeServer | null => {
+      if (bridge) return bridge;
+      if (!config.enabled || !config.token) return null;
+      const gateway = createGatewayDispatcher(
+        api.config as OpenClawConfig,
+        api.logger,
       );
-      return;
-    }
-
-    // Build gateway dispatcher so chat.request messages reach the agent
-    const gateway = createGatewayDispatcher(
-      api.config as OpenClawConfig,
-      api.logger,
-    );
-
-    bridge = new BridgeServer({
-      config,
-      logger: api.logger,
-      gateway,
-    });
+      bridge = new BridgeServer({ config, logger: api.logger, gateway });
+      return bridge;
+    };
 
     // Register as a lifecycle service (started/stopped with the gateway)
     api.registerService({
       id: "voicenode-bridge",
       start: async () => {
-        await bridge!.start();
+        const srv = ensureBridge();
+        if (srv) {
+          await srv.start();
+        } else {
+          api.logger.info(
+            "[voicenode-bridge] service start skipped (disabled or no token)",
+          );
+        }
       },
       stop: async () => {
-        await bridge!.stop();
+        if (bridge) {
+          await bridge.stop();
+        }
       },
     });
 
@@ -133,6 +132,7 @@ const plugin = {
         respond(true, {
           connected: bridge?.isClientConnected() ?? false,
           port: config.port,
+          enabled: config.enabled,
         });
       },
     );
@@ -144,12 +144,15 @@ const plugin = {
         res.json({
           connected: bridge?.isClientConnected() ?? false,
           port: config.port,
+          enabled: config.enabled,
         });
       },
     });
 
     // ── Register voicenode_tool proxy ────────────────────────────────
-    // Allows the OpenClaw agent to invoke any of voiceNode's 135+ tools
+    // Allows the OpenClaw agent to invoke any of voiceNode's 135+ tools.
+    // Always registered so the tool appears in listings; execute checks
+    // bridge availability at runtime.
     api.registerTool({
       name: "voicenode_tool",
       label: "voiceNode Tool Proxy",
@@ -159,14 +162,15 @@ Common tools include: sms_send, hubspot_create_contact, hubspot_search_contacts,
 stripe_create_payment_link, salesforce_search, apollo_search_contacts,
 shopify_get_orders, quickbooks_get_invoices, email_send, slack_send_message,
 copywriter_create_content, document_generate_pdf, etc.
-Pass the exact tool name and its arguments.`,
+Pass the exact tool name and its arguments as a JSON string.`,
       parameters: Type.Object({
         tool_name: Type.String({
           description:
             "The voiceNode tool name (e.g. hubspot_create_contact, sms_send)",
         }),
-        arguments: Type.Record(Type.String(), Type.Unknown(), {
-          description: "Tool arguments as key-value pairs",
+        arguments: Type.String({
+          description:
+            'Tool arguments as a JSON-encoded object, e.g. {"to":"+1555…","body":"Hello"}',
         }),
         tenant_id: Type.Optional(
           Type.String({ description: "Tenant ID (defaults to 'default')" }),
@@ -186,11 +190,34 @@ Pass the exact tool name and its arguments.`,
           details: payload,
         });
 
-        api.logger.info(`[voicenode-bridge] tool execute: bridge=${!!bridge}, connected=${bridge?.isClientConnected()}`);
+        if (!config.enabled) {
+          return json({
+            error:
+              "voiceNode bridge is disabled. Enable it in plugin config or set OPENCLAW_VOICENODE_BRIDGE_ENABLED=true",
+          });
+        }
+
+        if (!config.token) {
+          return json({
+            error:
+              "voiceNode bridge has no auth token configured. Set it in plugin config or OPENCLAW_VOICENODE_BRIDGE_TOKEN",
+          });
+        }
 
         if (!bridge?.isClientConnected()) {
-          api.logger.warn(`[voicenode-bridge] tool call rejected: voiceNode not connected`);
+          api.logger.warn("[voicenode-bridge] tool call rejected: voiceNode not connected");
           return json({ error: "voiceNode client not connected" });
+        }
+
+        // Parse the JSON arguments string
+        let parsedArgs: Record<string, unknown>;
+        try {
+          parsedArgs =
+            typeof params.arguments === "object"
+              ? (params.arguments as Record<string, unknown>)
+              : JSON.parse(params.arguments);
+        } catch {
+          return json({ error: "Invalid JSON in arguments parameter" });
         }
 
         if (!bridge.isToolAllowed(params.tool_name)) {
@@ -202,7 +229,7 @@ Pass the exact tool name and its arguments.`,
         try {
           const result = await bridge.callVoiceNodeTool(
             params.tool_name,
-            params.arguments ?? {},
+            parsedArgs,
             {
               tenantId: params.tenant_id || "default",
               userId: params.user_id || "system",
@@ -219,7 +246,7 @@ Pass the exact tool name and its arguments.`,
 
     registered = true;
     api.logger.info(
-      `[voicenode-bridge] registered (port=${config.port}, tool=voicenode_tool)`,
+      `[voicenode-bridge] registered (enabled=${config.enabled}, port=${config.port}, tool=voicenode_tool)`,
     );
   },
 };
