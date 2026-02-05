@@ -83,25 +83,33 @@ const plugin = {
     "Bilateral WebSocket bridge for voiceNode tool execution and chat",
 
   register(api: OpenClawPluginApi) {
+    console.log("[voicenode-bridge] REGISTER START - registered:", registered, "bridge:", !!bridge);
+
     // Guard against re-registration (can happen during hot reload)
     if (registered && bridge) {
       api.logger.info("[voicenode-bridge] already registered, skipping re-registration");
       return;
     }
 
+    console.log("[voicenode-bridge] Loading config from:", JSON.stringify(api.pluginConfig));
     const config = loadConfig(api.pluginConfig ?? {});
+    console.log("[voicenode-bridge] Config loaded:", JSON.stringify(config));
 
     if (!config.enabled) {
+      console.log("[voicenode-bridge] DISABLED - exiting");
       api.logger.info("[voicenode-bridge] disabled");
       return;
     }
 
     if (!config.token) {
+      console.log("[voicenode-bridge] NO TOKEN - exiting");
       api.logger.warn(
         "[voicenode-bridge] enabled but no token configured — skipping",
       );
       return;
     }
+
+    console.log("[voicenode-bridge] Config OK, proceeding with registration");
 
     // Build gateway dispatcher so chat.request messages reach the agent
     const gateway = createGatewayDispatcher(
@@ -149,75 +157,86 @@ const plugin = {
     });
 
     // ── Register voicenode_tool proxy ────────────────────────────────
-    // Allows the OpenClaw agent to invoke any of voiceNode's 135+ tools
-    api.registerTool({
-      name: "voicenode_tool",
-      label: "voiceNode Tool Proxy",
-      description: `Execute a tool on the connected voiceNode platform.
+    // Allows the OpenClaw agent to invoke any of voiceNode's 711+ tools
+    // Using factory pattern like other OpenClaw extensions
+    console.log("[voicenode-bridge] About to register tool...");
+    api.registerTool(
+      (_ctx) => {
+        console.log(`[voicenode-bridge] FACTORY CALLED - creating voicenode_tool`);
+        return {
+          name: "voicenode_tool",
+          label: "voiceNode Tool Proxy",
+          description: `Execute a tool on the connected voiceNode platform.
 Available tool categories: ${config.allowedTools.join(", ")}.
-Common tools include: sms_send, hubspot_create_contact, hubspot_search_contacts,
-stripe_create_payment_link, salesforce_search, apollo_search_contacts,
-shopify_get_orders, quickbooks_get_invoices, email_send, slack_send_message,
-copywriter_create_content, document_generate_pdf, etc.
+Common tools include: alpaca_get_account, alpaca_get_positions, sms_send,
+hubspot_create_contact, stripe_create_payment_link, shopify_get_orders,
+quickbooks_get_invoices, email_send, slack_send_message, etc.
 Pass the exact tool name and its arguments.`,
-      parameters: Type.Object({
-        tool_name: Type.String({
-          description:
-            "The voiceNode tool name (e.g. hubspot_create_contact, sms_send)",
-        }),
-        arguments: Type.Record(Type.String(), Type.Unknown(), {
-          description: "Tool arguments as key-value pairs",
-        }),
-        tenant_id: Type.Optional(
-          Type.String({ description: "Tenant ID (defaults to 'default')" }),
-        ),
-        user_id: Type.Optional(
-          Type.String({ description: "User ID (defaults to 'system')" }),
-        ),
-      }),
-      async execute(_toolCallId, params) {
-        const json = (payload: unknown) => ({
-          content: [
-            {
-              type: "text" as const,
-              text: JSON.stringify(payload, null, 2),
-            },
-          ],
-          details: payload,
-        });
+          parameters: Type.Object({
+            tool_name: Type.String({
+              description:
+                "The voiceNode tool name (e.g. alpaca_get_account, hubspot_create_contact)",
+            }),
+            arguments: Type.Record(Type.String(), Type.Unknown(), {
+              description: "Tool arguments as key-value pairs",
+            }),
+            tenant_id: Type.Optional(
+              Type.String({ description: "Tenant ID (defaults to 'default')" }),
+            ),
+            user_id: Type.Optional(
+              Type.String({ description: "User ID (defaults to 'system')" }),
+            ),
+          }),
+          async execute(_toolCallId: string, params: Record<string, unknown>) {
+            const json = (payload: unknown) => {
+              console.log(`[voicenode-bridge] RETURNING: ${JSON.stringify(payload).slice(0, 200)}`);
+              return {
+                content: [
+                  {
+                    type: "text" as const,
+                    text: JSON.stringify(payload, null, 2),
+                  },
+                ],
+                details: payload,
+              };
+            };
 
-        api.logger.info(`[voicenode-bridge] tool execute: bridge=${!!bridge}, connected=${bridge?.isClientConnected()}`);
+            console.log(`[voicenode-bridge] EXECUTE: tool_name=${params.tool_name}, bridge=${!!bridge}, connected=${bridge?.isClientConnected()}`);
 
-        if (!bridge?.isClientConnected()) {
-          api.logger.warn(`[voicenode-bridge] tool call rejected: voiceNode not connected`);
-          return json({ error: "voiceNode client not connected" });
-        }
+            if (!bridge?.isClientConnected()) {
+              console.log(`[voicenode-bridge] REJECTED: voiceNode not connected`);
+              return json({ error: "voiceNode client not connected" });
+            }
 
-        if (!bridge.isToolAllowed(params.tool_name)) {
-          return json({
-            error: `Tool "${params.tool_name}" is not in the allowed tools list`,
-          });
-        }
+            if (!bridge.isToolAllowed(params.tool_name as string)) {
+              return json({
+                error: `Tool "${params.tool_name}" is not in the allowed tools list`,
+              });
+            }
 
-        try {
-          const result = await bridge.callVoiceNodeTool(
-            params.tool_name,
-            params.arguments ?? {},
-            {
-              tenantId: params.tenant_id || "default",
-              userId: params.user_id || "system",
-            },
-          );
-          return json({ success: true, data: result });
-        } catch (err) {
-          return json({
-            error: err instanceof Error ? err.message : String(err),
-          });
-        }
+            try {
+              const result = await bridge.callVoiceNodeTool(
+                params.tool_name as string,
+                (params.arguments as Record<string, unknown>) ?? {},
+                {
+                  tenantId: (params.tenant_id as string) || "default",
+                  userId: (params.user_id as string) || "system",
+                },
+              );
+              return json({ success: true, data: result });
+            } catch (err) {
+              return json({
+                error: err instanceof Error ? err.message : String(err),
+              });
+            }
+          },
+        };
       },
-    });
+    );
+    console.log("[voicenode-bridge] Tool registered successfully!");
 
     registered = true;
+    console.log("[voicenode-bridge] REGISTRATION COMPLETE");
     api.logger.info(
       `[voicenode-bridge] registered (port=${config.port}, tool=voicenode_tool)`,
     );
