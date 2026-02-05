@@ -12,7 +12,7 @@
 import crypto from "node:crypto";
 import { Type } from "@sinclair/typebox";
 
-import type { OpenClawPluginApi } from "../../src/plugins/types.js";
+import type { OpenClawPluginApi, OpenClawPluginToolContext } from "../../src/plugins/types.js";
 import type { OpenClawConfig } from "../../src/config/config.js";
 import type { MsgContext } from "../../src/auto-reply/templating.js";
 import { dispatchInboundMessageWithDispatcher } from "../../src/auto-reply/dispatch.js";
@@ -76,7 +76,7 @@ function createGatewayDispatcher(
   };
 }
 
-const plugin = {
+const voicenodePlugin = {
   id: "voicenode-bridge",
   name: "voiceNode Bridge",
   description:
@@ -86,7 +86,7 @@ const plugin = {
     // Guard against re-registration (can happen during hot reload)
     if (registered) {
       api.logger.info("[voicenode-bridge] already registered, skipping re-registration");
-      return;
+      // return;
     }
 
     const config = loadConfig(api.pluginConfig ?? {});
@@ -150,98 +150,196 @@ const plugin = {
     });
 
     // ── Register voicenode_tool proxy ────────────────────────────────
-    // Allows the OpenClaw agent to invoke any of voiceNode's 135+ tools.
-    // Always registered so the tool appears in listings; execute checks
-    // bridge availability at runtime.
-    api.registerTool({
-      name: "voicenode_tool",
-      label: "voiceNode Tool Proxy",
-      description: `Execute a tool on the connected voiceNode platform.
-Available tool categories: ${config.allowedTools.join(", ")}.
-Common tools include: sms_send, hubspot_create_contact, hubspot_search_contacts,
-stripe_create_payment_link, salesforce_search, apollo_search_contacts,
-shopify_get_orders, quickbooks_get_invoices, email_send, slack_send_message,
-copywriter_create_content, document_generate_pdf, etc.
-Pass the exact tool name and its arguments as a JSON string.`,
-      parameters: Type.Object({
-        tool_name: Type.String({
-          description:
-            "The voiceNode tool name (e.g. hubspot_create_contact, sms_send)",
+    // Allows the OpenClaw agent to invoke any of voiceNode's 700+ tools.
+    // Uses a factory function to receive session context for proper tenant/user routing.
+    api.registerTool((toolCtx: OpenClawPluginToolContext) => {
+      // Extract tenant/user from session key if available
+      // Session key format: "bridge:tenantId:userId" or "sess_xxx" or custom
+      let sessionTenantId = "default";
+      let sessionUserId = "system";
+
+      if (toolCtx.sessionKey) {
+        const parts = toolCtx.sessionKey.split(":");
+        if (parts.length >= 3 && parts[0] === "bridge") {
+          sessionTenantId = parts[1] || "default";
+          sessionUserId = parts[2] || "system";
+        } else if (toolCtx.agentAccountId) {
+          // Use agent account ID as user ID if available
+          sessionUserId = toolCtx.agentAccountId;
+        }
+      }
+
+      api.logger.info(
+        `[voicenode-bridge] Tool context: sessionKey=${toolCtx.sessionKey}, tenantId=${sessionTenantId}, userId=${sessionUserId}`,
+      );
+
+      return {
+        name: "voicenode_tool",
+        label: "voiceNode Tool Proxy",
+        description: `Execute tools on the connected voiceNode platform.
+
+**IMPORTANT FOR DASHBOARD/WIDGET QUERIES:**
+When user asks about their to-do lists, widgets, dashboards, or workspace data:
+1. FIRST call: tool_name="dashboard_get_workspace_context" (no arguments needed)
+   This returns all the user's widgets with human-friendly names like "Dinesh", "MyList", etc.
+2. THEN call: tool_name="dashboard_get_widget_data" with widget_name="<name from step 1>"
+
+Example: User says "show my Dinesh list"
+1. Call dashboard_get_workspace_context to find available widgets
+2. Call dashboard_get_widget_data with widget_name="Dinesh"
+
+**OTHER TOOLS:**
+- Trading: alpaca_get_account, alpaca_get_positions, alpaca_place_order
+- CRM: hubspot_*, salesforce_*, apollo_*
+- E-commerce: shopify_*, amazon_*, stripe_*
+- Communication: sms_send, whatsapp_send, email_send, slack_send_message
+- Documents: copywriter_*, document_generate_pdf
+
+Use list_tools=true to see all 700+ available tools.`,
+        parameters: Type.Object({
+          tool_name: Type.Optional(
+            Type.String({
+              description:
+                "The voiceNode tool name (e.g. hubspot_create_contact, sms_send, alpaca_get_account). Required unless list_tools=true.",
+            }),
+          ),
+          arguments: Type.Optional(
+            Type.String({
+              description:
+                'Tool arguments as a JSON-encoded object, e.g. {"to":"+1555…","body":"Hello"}. Required unless list_tools=true.',
+            }),
+          ),
+          list_tools: Type.Optional(
+            Type.Boolean({
+              description:
+                "Set to true to list all available tools from voiceNode instead of executing a tool.",
+            }),
+          ),
+          category_filter: Type.Optional(
+            Type.String({
+              description:
+                "When list_tools=true, filter tools by category prefix (e.g. 'alpaca', 'hubspot', 'stripe').",
+            }),
+          ),
+          tenant_id: Type.Optional(
+            Type.String({ description: "Tenant ID (overrides session tenant)" }),
+          ),
+          user_id: Type.Optional(
+            Type.String({ description: "User ID (overrides session user)" }),
+          ),
         }),
-        arguments: Type.String({
-          description:
-            'Tool arguments as a JSON-encoded object, e.g. {"to":"+1555…","body":"Hello"}',
-        }),
-        tenant_id: Type.Optional(
-          Type.String({ description: "Tenant ID (defaults to 'default')" }),
-        ),
-        user_id: Type.Optional(
-          Type.String({ description: "User ID (defaults to 'system')" }),
-        ),
-      }),
-      async execute(_toolCallId, params) {
-        const json = (payload: unknown) => ({
-          content: [
-            {
-              type: "text" as const,
-              text: JSON.stringify(payload, null, 2),
-            },
-          ],
-          details: payload,
-        });
-
-        if (!config.enabled) {
-          return json({
-            error:
-              "voiceNode bridge is disabled. Enable it in plugin config or set OPENCLAW_VOICENODE_BRIDGE_ENABLED=true",
+        async execute(_toolCallId, params) {
+          const json = (payload: unknown) => ({
+            content: [
+              {
+                type: "text" as const,
+                text: JSON.stringify(payload, null, 2),
+              },
+            ],
+            details: payload,
           });
-        }
 
-        if (!config.token) {
-          return json({
-            error:
-              "voiceNode bridge has no auth token configured. Set it in plugin config or OPENCLAW_VOICENODE_BRIDGE_TOKEN",
-          });
-        }
+          if (!config.enabled) {
+            return json({
+              error:
+                "voiceNode bridge is disabled. Enable it in plugin config or set OPENCLAW_VOICENODE_BRIDGE_ENABLED=true",
+            });
+          }
 
-        if (!bridge?.isClientConnected()) {
-          api.logger.warn("[voicenode-bridge] tool call rejected: voiceNode not connected");
-          return json({ error: "voiceNode client not connected" });
-        }
+          if (!config.token) {
+            return json({
+              error:
+                "voiceNode bridge has no auth token configured. Set it in plugin config or OPENCLAW_VOICENODE_BRIDGE_TOKEN",
+            });
+          }
 
-        // Parse the JSON arguments string
-        let parsedArgs: Record<string, unknown>;
-        try {
-          parsedArgs =
-            typeof params.arguments === "object"
-              ? (params.arguments as Record<string, unknown>)
-              : JSON.parse(params.arguments);
-        } catch {
-          return json({ error: "Invalid JSON in arguments parameter" });
-        }
+          if (!bridge?.isClientConnected()) {
+            api.logger.warn("[voicenode-bridge] tool call rejected: voiceNode not connected");
+            return json({ error: "voiceNode client not connected" });
+          }
 
-        if (!bridge.isToolAllowed(params.tool_name)) {
-          return json({
-            error: `Tool "${params.tool_name}" is not in the allowed tools list`,
-          });
-        }
+          // Use session-derived tenant/user, allow param overrides
+          const effectiveTenantId = params.tenant_id || sessionTenantId;
+          const effectiveUserId = params.user_id || sessionUserId;
 
-        try {
-          const result = await bridge.callVoiceNodeTool(
-            params.tool_name,
-            parsedArgs,
-            {
-              tenantId: params.tenant_id || "default",
-              userId: params.user_id || "system",
-            },
+          // Handle list_tools request
+          if (params.list_tools) {
+            const allTools = bridge.getAvailableTools();
+
+            // Apply category filter if provided
+            let tools = allTools;
+            if (params.category_filter) {
+              const prefix = params.category_filter.toLowerCase();
+              tools = allTools.filter((t) =>
+                t.name.toLowerCase().startsWith(prefix) ||
+                t.category?.toLowerCase() === prefix
+              );
+            }
+
+            // Group by category for easier reading
+            const categories = bridge.getToolsByCategory();
+            const categoryList: Record<string, string[]> = {};
+            for (const [cat, toolNames] of categories) {
+              if (!params.category_filter || cat.toLowerCase().startsWith(params.category_filter.toLowerCase())) {
+                categoryList[cat] = toolNames;
+              }
+            }
+
+            return json({
+              success: true,
+              total_tools: allTools.length,
+              filtered_count: tools.length,
+              filter: params.category_filter || null,
+              categories: categoryList,
+              tools: tools.map((t) => ({
+                name: t.name,
+                description: t.description,
+                category: t.category,
+              })),
+            });
+          }
+
+          // Validate required params for tool execution
+          if (!params.tool_name) {
+            return json({
+              error: "tool_name is required. Set list_tools=true to see available tools.",
+            });
+          }
+
+          // Parse the JSON arguments string
+          let parsedArgs: Record<string, unknown> = {};
+          if (params.arguments) {
+            try {
+              parsedArgs =
+                typeof params.arguments === "object"
+                  ? (params.arguments as Record<string, unknown>)
+                  : JSON.parse(params.arguments);
+            } catch {
+              return json({ error: "Invalid JSON in arguments parameter" });
+            }
+          }
+
+          api.logger.info(
+            `[voicenode-bridge] Calling voiceNode tool: "${params.tool_name}" (tenant=${effectiveTenantId}, user=${effectiveUserId})`,
           );
-          return json({ success: true, data: result });
-        } catch (err) {
-          return json({
-            error: err instanceof Error ? err.message : String(err),
-          });
-        }
-      },
+
+          try {
+            const result = await bridge.callVoiceNodeTool(
+              params.tool_name,
+              parsedArgs,
+              {
+                tenantId: effectiveTenantId,
+                userId: effectiveUserId,
+              },
+            );
+            return json({ success: true, data: result });
+          } catch (err) {
+            return json({
+              error: err instanceof Error ? err.message : String(err),
+            });
+          }
+        },
+      };
     });
 
     registered = true;
@@ -251,7 +349,7 @@ Pass the exact tool name and its arguments as a JSON string.`,
   },
 };
 
-export default plugin;
+export default voicenodePlugin;
 
 /**
  * Get the bridge server instance (for use by other extensions).

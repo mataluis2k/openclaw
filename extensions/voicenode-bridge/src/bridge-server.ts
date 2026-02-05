@@ -15,6 +15,8 @@ import type {
   AuthMessage,
   ChatRequest,
   ToolResult,
+  ToolsListResponse,
+  ToolDefinition,
   ErrorCode,
 } from "./protocol.js";
 import type { BridgeConfig } from "./config.js";
@@ -45,6 +47,13 @@ export class BridgeServer {
   private sessionId: string | null = null;
   private pendingToolCalls = new Map<string, PendingToolCall>();
   private pingInterval: ReturnType<typeof setInterval> | null = null;
+
+  // Dynamic tool list from voiceNode
+  private availableTools: ToolDefinition[] = [];
+  private toolsListPending: {
+    resolve: (tools: ToolDefinition[]) => void;
+    reject: (err: Error) => void;
+  } | null = null;
 
   private config: BridgeConfig;
   private gateway?: GatewayDispatcher;
@@ -190,6 +199,9 @@ export class BridgeServer {
       case "tool.result":
         this.resolveToolCall(msg as ToolResult);
         break;
+      case "tools.list.response":
+        this.handleToolsListResponse(msg as ToolsListResponse);
+        break;
       case "ping":
         this.send({
           type: "pong",
@@ -246,6 +258,17 @@ export class BridgeServer {
     });
 
     this.startPing();
+
+    // Request the list of available tools from voiceNode
+    this.requestToolsList()
+      .then((tools) => {
+        this.logger.info(
+          `Discovered ${tools.length} tools from voiceNode`,
+        );
+      })
+      .catch((err) => {
+        this.logger.warn(`Failed to get tools list from voiceNode: ${err.message}`);
+      });
   }
 
   // ── Agent dispatch ──────────────────────────────────────────────
@@ -361,6 +384,106 @@ export class BridgeServer {
       this.client.readyState === WebSocket.OPEN &&
       this.authenticated
     );
+  }
+
+  // ── Dynamic tool discovery ─────────────────────────────────────
+
+  /**
+   * Request the list of available tools from voiceNode.
+   * Called automatically after authentication.
+   */
+  async requestToolsList(): Promise<ToolDefinition[]> {
+    if (!this.client || !this.authenticated) {
+      throw new Error("voiceNode client not connected");
+    }
+
+    return new Promise((resolve, reject) => {
+      // Store the pending promise handlers
+      this.toolsListPending = { resolve, reject };
+
+      // Set timeout
+      const timer = setTimeout(() => {
+        this.toolsListPending = null;
+        reject(new Error("Tools list request timed out"));
+      }, 10000);
+
+      // Store timer reference for cleanup
+      (this.toolsListPending as any).timer = timer;
+
+      this.send({
+        type: "tools.list",
+        id: crypto.randomUUID(),
+        timestamp: new Date().toISOString(),
+        context: {
+          tenantId: "default",
+          userId: "system",
+        },
+      });
+    });
+  }
+
+  /**
+   * Handle the tools list response from voiceNode.
+   */
+  private handleToolsListResponse(msg: ToolsListResponse): void {
+    this.availableTools = msg.tools || [];
+    this.logger.info(
+      `Received ${this.availableTools.length} tools from voiceNode`,
+    );
+
+    // Log tool categories if available
+    if (msg.categories && msg.categories.length > 0) {
+      this.logger.info(`Tool categories: ${msg.categories.join(", ")}`);
+    }
+
+    // Resolve pending promise if any
+    if (this.toolsListPending) {
+      const timer = (this.toolsListPending as any).timer;
+      if (timer) clearTimeout(timer);
+      this.toolsListPending.resolve(this.availableTools);
+      this.toolsListPending = null;
+    }
+  }
+
+  /**
+   * Get the list of available tools from voiceNode.
+   * Returns cached list if available, or empty array if not yet fetched.
+   */
+  getAvailableTools(): ToolDefinition[] {
+    return this.availableTools;
+  }
+
+  /**
+   * Get tool names grouped by category prefix.
+   */
+  getToolsByCategory(): Map<string, string[]> {
+    const categories = new Map<string, string[]>();
+    for (const tool of this.availableTools) {
+      const category = tool.category || tool.name.split("_")[0] || "other";
+      if (!categories.has(category)) {
+        categories.set(category, []);
+      }
+      categories.get(category)!.push(tool.name);
+    }
+    return categories;
+  }
+
+  /**
+   * Get a formatted description of available tools for the agent.
+   */
+  getToolsDescription(): string {
+    if (this.availableTools.length === 0) {
+      return "No tools currently available from voiceNode.";
+    }
+
+    const categories = this.getToolsByCategory();
+    const parts: string[] = [`${this.availableTools.length} tools available:`];
+
+    for (const [category, tools] of categories) {
+      parts.push(`- ${category}: ${tools.join(", ")}`);
+    }
+
+    return parts.join("\n");
   }
 
   // ── Keepalive ───────────────────────────────────────────────────

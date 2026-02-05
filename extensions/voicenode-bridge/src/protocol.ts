@@ -88,6 +88,34 @@ export interface ToolResult {
   };
 }
 
+// ── Tool Discovery ──────────────────────────────────────────────────
+
+export interface ToolDefinition {
+  name: string;
+  description: string;
+  category?: string;
+  parameters?: Record<string, unknown>;
+}
+
+export interface ToolsListRequest {
+  type: "tools.list";
+  id: string;
+  timestamp: string;
+  context?: {
+    tenantId?: string;
+    userId?: string;
+  };
+}
+
+export interface ToolsListResponse {
+  type: "tools.list.response";
+  id: string;
+  timestamp: string;
+  requestId: string;
+  tools: ToolDefinition[];
+  categories?: string[];
+}
+
 // ── Keepalive ───────────────────────────────────────────────────────
 
 export interface Ping {
@@ -132,6 +160,8 @@ export type BridgeMessage =
   | ChatResponse
   | ToolCall
   | ToolResult
+  | ToolsListRequest
+  | ToolsListResponse
   | Ping
   | Pong
   | ErrorMessage;
