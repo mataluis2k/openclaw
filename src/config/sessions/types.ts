@@ -23,6 +23,8 @@ export type SessionOrigin = {
 };
 
 export type SessionEntry = {
+  /** Tenant identifier for multi-tenant data isolation. */
+  tenantId?: string;
   /**
    * Last delivered heartbeat payload (used to suppress duplicate heartbeat notifications).
    * Stored on the main session entry.

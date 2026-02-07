@@ -10,6 +10,7 @@ export {
 export const DEFAULT_AGENT_ID = "main";
 export const DEFAULT_MAIN_KEY = "main";
 export const DEFAULT_ACCOUNT_ID = "default";
+export const DEFAULT_TENANT_ID = "default";
 
 // Pre-compiled regex
 const VALID_ID_RE = /^[a-z0-9][a-z0-9_-]{0,63}$/i;
@@ -246,4 +247,59 @@ export function resolveThreadSessionKeys(params: {
     ? `${params.baseSessionKey}:thread:${normalizedThreadId}`
     : params.baseSessionKey;
   return { sessionKey, parentSessionKey: params.parentSessionKey };
+}
+
+// ── Tenant-aware session keys ────────────────────────────────────
+
+export interface ParsedTenantSessionKey {
+  tenantId: string;
+  agentId: string;
+  rest: string;
+}
+
+/**
+ * Build a tenant-scoped session key.
+ * Format: tenant:{tenantId}:agent:{agentId}:{context}
+ */
+export function buildTenantSessionKey(params: {
+  tenantId: string;
+  agentId: string;
+  context: string;
+}): string {
+  const tenantId = params.tenantId || DEFAULT_TENANT_ID;
+  const agentId = normalizeAgentId(params.agentId);
+  return `tenant:${tenantId}:agent:${agentId}:${params.context}`;
+}
+
+/**
+ * Parse a tenant-scoped session key.
+ * Returns null if the key doesn't match the tenant format.
+ */
+export function parseTenantSessionKey(key: string): ParsedTenantSessionKey | null {
+  if (!key.startsWith("tenant:")) return null;
+  const parts = key.split(":");
+  // tenant:{tenantId}:agent:{agentId}:{rest...}
+  if (parts.length < 5 || parts[2] !== "agent") return null;
+  return {
+    tenantId: parts[1],
+    agentId: parts[3],
+    rest: parts.slice(4).join(":"),
+  };
+}
+
+/**
+ * Extract tenant ID from any session key format.
+ * Supports:
+ * - Tenant format: tenant:{tenantId}:agent:{agentId}:{rest}
+ * - Legacy bridge format: bridge:{tenantId}:{userId}
+ * - Any other format: returns DEFAULT_TENANT_ID
+ */
+export function extractTenantId(sessionKey: string | undefined | null): string {
+  if (!sessionKey) return DEFAULT_TENANT_ID;
+  const parsed = parseTenantSessionKey(sessionKey);
+  if (parsed) return parsed.tenantId;
+  // Legacy bridge format: bridge:tenantId:userId
+  const parts = sessionKey.split(":");
+  if (parts[0] === "bridge" && parts.length >= 3) return parts[1];
+  return DEFAULT_TENANT_ID;
 }

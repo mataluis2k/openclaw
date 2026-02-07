@@ -19,6 +19,7 @@ import {
   updateSessionStoreEntry,
 } from "../../config/sessions.js";
 import { emitDiagnosticEvent, isDiagnosticsEnabled } from "../../infra/diagnostic-events.js";
+import { extractTenantId } from "../../routing/session-key.js";
 import { defaultRuntime } from "../../runtime.js";
 import { estimateUsageCost, resolveModelCostConfig } from "../../utils/usage-format.js";
 import { resolveResponseUsageMode, type VerboseLevel } from "../thinking.js";
@@ -254,10 +255,12 @@ export async function runReplyAgent(params: {
       abortedLastRun: false,
     };
     const agentId = resolveAgentIdFromSessionKey(sessionKey);
+    const tenantId = extractTenantId(sessionKey);
     const nextSessionFile = resolveSessionTranscriptPath(
       nextSessionId,
       agentId,
       sessionCtx.MessageThreadId,
+      tenantId,
     );
     nextEntry.sessionFile = nextSessionFile;
     activeSessionStore[sessionKey] = nextEntry;
@@ -277,11 +280,13 @@ export async function runReplyAgent(params: {
     defaultRuntime.error(buildLogMessage(nextSessionId));
     if (cleanupTranscripts && prevSessionId) {
       const transcriptCandidates = new Set<string>();
-      const resolved = resolveSessionFilePath(prevSessionId, prevEntry, { agentId });
+      const resolved = resolveSessionFilePath(prevSessionId, prevEntry, { agentId, tenantId });
       if (resolved) {
         transcriptCandidates.add(resolved);
       }
-      transcriptCandidates.add(resolveSessionTranscriptPath(prevSessionId, agentId));
+      transcriptCandidates.add(
+        resolveSessionTranscriptPath(prevSessionId, agentId, undefined, tenantId),
+      );
       for (const candidate of transcriptCandidates) {
         try {
           fs.unlinkSync(candidate);

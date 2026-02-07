@@ -18,6 +18,7 @@ import type { MsgContext } from "../../src/auto-reply/templating.js";
 import { dispatchInboundMessageWithDispatcher } from "../../src/auto-reply/dispatch.js";
 import { INTERNAL_MESSAGE_CHANNEL } from "../../src/utils/message-channel.js";
 
+import { extractTenantId, parseTenantSessionKey } from "../../src/routing/session-key.js";
 import { BridgeServer } from "./src/bridge-server.js";
 import { loadConfig } from "./src/config.js";
 
@@ -39,6 +40,9 @@ function createGatewayDispatcher(
     ): Promise<{ content: string; metadata?: Record<string, unknown> }> => {
       const runId = crypto.randomUUID();
 
+      // Extract tenant ID from session key for multi-tenant data isolation
+      const tenantId = extractTenantId(sessionKey);
+
       const ctx: MsgContext = {
         Body: message,
         BodyForAgent: message,
@@ -46,6 +50,7 @@ function createGatewayDispatcher(
         RawBody: message,
         CommandBody: message,
         SessionKey: sessionKey,
+        TenantId: tenantId,
         Provider: INTERNAL_MESSAGE_CHANNEL,
         Surface: INTERNAL_MESSAGE_CHANNEL,
         OriginatingChannel: INTERNAL_MESSAGE_CHANNEL,
@@ -154,18 +159,28 @@ const voicenodePlugin = {
     // Uses a factory function to receive session context for proper tenant/user routing.
     api.registerTool((toolCtx: OpenClawPluginToolContext) => {
       // Extract tenant/user from session key if available
-      // Session key format: "bridge:tenantId:userId" or "sess_xxx" or custom
+      // Session key formats:
+      //   New: "tenant:{tenantId}:agent:{agentId}:bridge:{userId}"
+      //   Legacy: "bridge:{tenantId}:{userId}"
       let sessionTenantId = "default";
       let sessionUserId = "system";
 
       if (toolCtx.sessionKey) {
-        const parts = toolCtx.sessionKey.split(":");
-        if (parts.length >= 3 && parts[0] === "bridge") {
-          sessionTenantId = parts[1] || "default";
-          sessionUserId = parts[2] || "system";
-        } else if (toolCtx.agentAccountId) {
-          // Use agent account ID as user ID if available
-          sessionUserId = toolCtx.agentAccountId;
+        sessionTenantId = extractTenantId(toolCtx.sessionKey);
+        const parsed = parseTenantSessionKey(toolCtx.sessionKey);
+        if (parsed) {
+          // New format: extract userId from rest (bridge:{userId})
+          const restParts = parsed.rest.split(":");
+          if (restParts[0] === "bridge" && restParts.length >= 2) {
+            sessionUserId = restParts[1] || "system";
+          }
+        } else {
+          const parts = toolCtx.sessionKey.split(":");
+          if (parts.length >= 3 && parts[0] === "bridge") {
+            sessionUserId = parts[2] || "system";
+          } else if (toolCtx.agentAccountId) {
+            sessionUserId = toolCtx.agentAccountId;
+          }
         }
       }
 

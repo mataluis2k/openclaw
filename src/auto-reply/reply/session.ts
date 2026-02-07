@@ -26,7 +26,7 @@ import {
   type SessionScope,
   updateSessionStore,
 } from "../../config/sessions.js";
-import { normalizeMainKey } from "../../routing/session-key.js";
+import { extractTenantId, normalizeMainKey } from "../../routing/session-key.js";
 import { normalizeSessionDeliveryFields } from "../../utils/delivery-context.js";
 import { resolveCommandAuthorization } from "../command-auth.js";
 import { formatInboundBodyWithSenderMeta } from "./inbound-sender-meta.js";
@@ -116,7 +116,9 @@ export async function initSessionState(params: {
     ? sessionCfg.resetTriggers
     : DEFAULT_RESET_TRIGGERS;
   const sessionScope = sessionCfg?.scope ?? "per-sender";
-  const storePath = resolveStorePath(sessionCfg?.store, { agentId });
+  // Extract tenant ID from context for multi-tenant data isolation
+  const tenantId = ctx.TenantId || extractTenantId(ctx.SessionKey);
+  const storePath = resolveStorePath(sessionCfg?.store, { agentId, tenantId });
 
   const sessionStore: Record<string, SessionEntry> = loadSessionStore(storePath);
   let sessionKey: string | undefined;
@@ -259,6 +261,7 @@ export async function initSessionState(params: {
   const lastThreadId = deliveryFields.lastThreadId ?? lastThreadIdRaw;
   sessionEntry = {
     ...baseEntry,
+    tenantId: tenantId !== "default" ? tenantId : undefined,
     sessionId,
     updatedAt: Date.now(),
     systemSent,
@@ -327,6 +330,7 @@ export async function initSessionState(params: {
       sessionEntry.sessionId,
       agentId,
       ctx.MessageThreadId,
+      tenantId,
     );
   }
   if (isNewSession) {

@@ -12,6 +12,7 @@ import {
 } from "../../utils/delivery-context.js";
 import { getFileMtimeMs, isCacheEnabled, resolveCacheTtlMs } from "../cache-utils.js";
 import { deriveSessionMetaPatch } from "./metadata.js";
+import { resolveDefaultSessionStorePath } from "./paths.js";
 import { mergeSessionEntry, type SessionEntry } from "./types.js";
 
 // ============================================================================
@@ -463,4 +464,31 @@ export async function updateLastRoute(params: {
     await saveSessionStoreUnlocked(storePath, store);
     return next;
   });
+}
+
+// ── Tenant-scoped convenience wrappers ─────────────────────────
+
+/**
+ * Load the session store for a specific tenant.
+ * The SESSION_STORE_CACHE separates tenants naturally via unique file paths.
+ */
+export function loadTenantSessionStore(
+  agentId: string,
+  tenantId: string,
+  opts?: LoadSessionStoreOptions,
+): Record<string, SessionEntry> {
+  const storePath = resolveDefaultSessionStorePath(agentId, tenantId);
+  return loadSessionStore(storePath, opts);
+}
+
+/**
+ * Update the session store for a specific tenant (read-modify-write with locking).
+ */
+export async function updateTenantSessionStore<T>(
+  agentId: string,
+  tenantId: string,
+  mutator: (store: Record<string, SessionEntry>) => Promise<T> | T,
+): Promise<T> {
+  const storePath = resolveDefaultSessionStorePath(agentId, tenantId);
+  return updateSessionStore(storePath, mutator);
 }

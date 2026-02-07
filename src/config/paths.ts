@@ -88,6 +88,22 @@ function resolveUserPath(input: string): string {
 export const STATE_DIR = resolveStateDir();
 
 /**
+ * Tenant-scoped state directory for multi-tenant data isolation.
+ * When tenantId is provided and not 'default', data is stored under
+ * `{stateDir}/tenants/{tenantId}/` to prevent cross-tenant data leakage.
+ * When tenantId is undefined or 'default', returns the global state dir (backward compatible).
+ */
+export function resolveStateDirForTenant(
+  tenantId: string | undefined,
+  env: NodeJS.ProcessEnv = process.env,
+  homedir: () => string = os.homedir,
+): string {
+  const base = resolveStateDir(env, homedir);
+  if (!tenantId || tenantId === "default") return base;
+  return path.join(base, "tenants", tenantId);
+}
+
+/**
  * Config file path (JSON5).
  * Can be overridden via OPENCLAW_CONFIG_PATH.
  * Default: ~/.openclaw/openclaw.json (or $OPENCLAW_STATE_DIR/openclaw.json)

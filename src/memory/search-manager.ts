@@ -9,6 +9,7 @@ export type MemorySearchManagerResult = {
 export async function getMemorySearchManager(params: {
   cfg: OpenClawConfig;
   agentId: string;
+  tenantId?: string;
 }): Promise<MemorySearchManagerResult> {
   try {
     const { MemoryIndexManager } = await import("./manager.js");

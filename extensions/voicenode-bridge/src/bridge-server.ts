@@ -20,6 +20,7 @@ import type {
   ErrorCode,
 } from "./protocol.js";
 import type { BridgeConfig } from "./config.js";
+import { buildTenantSessionKey } from "../../../src/routing/session-key.js";
 
 interface PendingToolCall {
   resolve: (value: unknown) => void;
@@ -279,13 +280,17 @@ export class BridgeServer {
         throw new Error("No gateway dispatcher configured");
       }
 
+      const tenantId = req.context.tenantId || "default";
+      const userId = req.context.userId || "anonymous";
+      const agentId = req.context.agentId || "main";
+
       this.logger.info(
-        `Dispatching chat request ${req.id} (tenant=${req.context.tenantId})`,
+        `Dispatching chat request ${req.id} (tenant=${tenantId})`,
       );
 
       const sessionKey =
         req.context.sessionId ||
-        `bridge:${req.context.tenantId}:${req.context.userId}`;
+        buildTenantSessionKey({ tenantId, agentId, context: `bridge:${userId}` });
       const response = await this.gateway.sendChat(sessionKey, req.content);
 
       this.send({
@@ -415,7 +420,7 @@ export class BridgeServer {
         id: crypto.randomUUID(),
         timestamp: new Date().toISOString(),
         context: {
-          tenantId: "default",
+          tenantId: "system",
           userId: "system",
         },
       });

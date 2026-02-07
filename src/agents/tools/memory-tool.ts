@@ -2,6 +2,7 @@ import { Type } from "@sinclair/typebox";
 import type { OpenClawConfig } from "../../config/config.js";
 import type { AnyAgentTool } from "./common.js";
 import { getMemorySearchManager } from "../../memory/index.js";
+import { extractTenantId } from "../../routing/session-key.js";
 import { resolveSessionAgentId } from "../agent-scope.js";
 import { resolveMemorySearchConfig } from "../memory-search.js";
 import { jsonResult, readNumberParam, readStringParam } from "./common.js";
@@ -30,6 +31,7 @@ export function createMemorySearchTool(options: {
     sessionKey: options.agentSessionKey,
     config: cfg,
   });
+  const tenantId = extractTenantId(options.agentSessionKey);
   if (!resolveMemorySearchConfig(cfg, agentId)) {
     return null;
   }
@@ -46,6 +48,7 @@ export function createMemorySearchTool(options: {
       const { manager, error } = await getMemorySearchManager({
         cfg,
         agentId,
+        tenantId,
       });
       if (!manager) {
         return jsonResult({ results: [], disabled: true, error });
@@ -83,6 +86,7 @@ export function createMemoryGetTool(options: {
     sessionKey: options.agentSessionKey,
     config: cfg,
   });
+  const tenantId = extractTenantId(options.agentSessionKey);
   if (!resolveMemorySearchConfig(cfg, agentId)) {
     return null;
   }
@@ -99,6 +103,7 @@ export function createMemoryGetTool(options: {
       const { manager, error } = await getMemorySearchManager({
         cfg,
         agentId,
+        tenantId,
       });
       if (!manager) {
         return jsonResult({ path: relPath, text: "", disabled: true, error });

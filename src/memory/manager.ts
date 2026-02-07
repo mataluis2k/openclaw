@@ -8,7 +8,10 @@ import type { ResolvedMemorySearchConfig } from "../agents/memory-search.js";
 import type { OpenClawConfig } from "../config/config.js";
 import { resolveAgentDir, resolveAgentWorkspaceDir } from "../agents/agent-scope.js";
 import { resolveMemorySearchConfig } from "../agents/memory-search.js";
-import { resolveSessionTranscriptsDirForAgent } from "../config/sessions/paths.js";
+import {
+  resolveMemoryDbPath,
+  resolveSessionTranscriptsDirForAgent,
+} from "../config/sessions/paths.js";
 import { createSubsystemLogger } from "../logging/subsystem.js";
 import { onSessionTranscriptUpdate } from "../sessions/transcript-events.js";
 import { resolveUserPath } from "../utils.js";
@@ -174,18 +177,32 @@ export class MemoryIndexManager {
   static async get(params: {
     cfg: OpenClawConfig;
     agentId: string;
+    tenantId?: string;
   }): Promise<MemoryIndexManager | null> {
     const { cfg, agentId } = params;
+    const tenantId = params.tenantId || "default";
     const settings = resolveMemorySearchConfig(cfg, agentId);
     if (!settings) {
       return null;
     }
     const workspaceDir = resolveAgentWorkspaceDir(cfg, agentId);
-    const key = `${agentId}:${workspaceDir}:${JSON.stringify(settings)}`;
+    // Include tenantId in cache key for tenant-scoped isolation
+    const key = `${tenantId}:${agentId}:${workspaceDir}:${JSON.stringify(settings)}`;
     const existing = INDEX_CACHE.get(key);
     if (existing) {
       return existing;
     }
+    // Override store path for tenant-scoped DB when tenantId is non-default
+    const effectiveSettings =
+      tenantId !== "default"
+        ? {
+            ...settings,
+            store: {
+              ...settings.store,
+              path: resolveMemoryDbPath(agentId, tenantId),
+            },
+          }
+        : settings;
     const providerResult = await createEmbeddingProvider({
       config: cfg,
       agentDir: resolveAgentDir(cfg, agentId),
@@ -199,18 +216,22 @@ export class MemoryIndexManager {
       cacheKey: key,
       cfg,
       agentId,
+      tenantId: tenantId !== "default" ? tenantId : undefined,
       workspaceDir,
-      settings,
+      settings: effectiveSettings,
       providerResult,
     });
     INDEX_CACHE.set(key, manager);
     return manager;
   }
 
+  private readonly tenantId?: string;
+
   private constructor(params: {
     cacheKey: string;
     cfg: OpenClawConfig;
     agentId: string;
+    tenantId?: string;
     workspaceDir: string;
     settings: ResolvedMemorySearchConfig;
     providerResult: EmbeddingProviderResult;
@@ -218,6 +239,7 @@ export class MemoryIndexManager {
     this.cacheKey = params.cacheKey;
     this.cfg = params.cfg;
     this.agentId = params.agentId;
+    this.tenantId = params.tenantId;
     this.workspaceDir = params.workspaceDir;
     this.settings = params.settings;
     this.provider = params.providerResult.provider;
@@ -1049,7 +1071,7 @@ export class MemoryIndexManager {
     if (!sessionFile) {
       return false;
     }
-    const sessionsDir = resolveSessionTranscriptsDirForAgent(this.agentId);
+    const sessionsDir = resolveSessionTranscriptsDirForAgent(this.agentId, this.tenantId);
     const resolvedFile = path.resolve(sessionFile);
     const resolvedDir = path.resolve(sessionsDir);
     return resolvedFile.startsWith(`${resolvedDir}${path.sep}`);
@@ -1577,7 +1599,7 @@ export class MemoryIndexManager {
   }
 
   private async listSessionFiles(): Promise<string[]> {
-    const dir = resolveSessionTranscriptsDirForAgent(this.agentId);
+    const dir = resolveSessionTranscriptsDirForAgent(this.agentId, this.tenantId);
     try {
       const entries = await fs.readdir(dir, { withFileTypes: true });
       return entries
