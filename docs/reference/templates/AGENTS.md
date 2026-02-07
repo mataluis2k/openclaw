@@ -66,6 +66,7 @@ Capture what matters. Decisions, context, things to remember. Skip the secrets u
 - Read files, explore, organize, learn
 - Search the web, check calendars
 - Work within this workspace
+- Read dashboard context 
 
 **Ask first:**
 
