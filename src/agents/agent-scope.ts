@@ -1,7 +1,7 @@
 import os from "node:os";
 import path from "node:path";
 import type { OpenClawConfig } from "../config/config.js";
-import { resolveStateDir } from "../config/paths.js";
+import { resolveStateDir, resolveStateDirForTenant } from "../config/paths.js";
 import {
   DEFAULT_AGENT_ID,
   normalizeAgentId,
@@ -150,13 +150,20 @@ export function resolveAgentModelFallbacksOverride(
   return Array.isArray(raw.fallbacks) ? raw.fallbacks : undefined;
 }
 
-export function resolveAgentWorkspaceDir(cfg: OpenClawConfig, agentId: string) {
+export function resolveAgentWorkspaceDir(cfg: OpenClawConfig, agentId: string, tenantId?: string) {
   const id = normalizeAgentId(agentId);
   const configured = resolveAgentConfig(cfg, id)?.workspace?.trim();
   if (configured) {
+    // Explicit workspace config overrides tenant scoping.
     return resolveUserPath(configured);
   }
   const defaultAgentId = resolveDefaultAgentId(cfg);
+  // When a non-default tenant is active, scope workspace under the tenant state dir.
+  if (tenantId && tenantId !== "default") {
+    const tenantRoot = resolveStateDirForTenant(tenantId);
+    const suffix = id === defaultAgentId ? "workspace" : `workspace-${id}`;
+    return path.join(tenantRoot, suffix);
+  }
   if (id === defaultAgentId) {
     const fallback = cfg.agents?.defaults?.workspace?.trim();
     if (fallback) {

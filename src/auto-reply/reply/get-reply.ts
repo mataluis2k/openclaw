@@ -11,6 +11,7 @@ import { DEFAULT_AGENT_WORKSPACE_DIR, ensureAgentWorkspace } from "../../agents/
 import { type OpenClawConfig, loadConfig } from "../../config/config.js";
 import { applyLinkUnderstanding } from "../../link-understanding/apply.js";
 import { applyMediaUnderstanding } from "../../media-understanding/apply.js";
+import { extractTenantId } from "../../routing/session-key.js";
 import { defaultRuntime } from "../../runtime.js";
 import { resolveCommandAuthorization } from "../command-auth.js";
 import { SILENT_REPLY_TOKEN } from "../tokens.js";
@@ -61,7 +62,9 @@ export async function getReplyFromConfig(
     }
   }
 
-  const workspaceDirRaw = resolveAgentWorkspaceDir(cfg, agentId) ?? DEFAULT_AGENT_WORKSPACE_DIR;
+  const tenantId = ctx.TenantId || extractTenantId(ctx.SessionKey);
+  const workspaceDirRaw =
+    resolveAgentWorkspaceDir(cfg, agentId, tenantId) ?? DEFAULT_AGENT_WORKSPACE_DIR;
   const workspace = await ensureAgentWorkspace({
     dir: workspaceDirRaw,
     ensureBootstrapFiles: !agentCfg?.skipBootstrap && !isFastTestEnv,

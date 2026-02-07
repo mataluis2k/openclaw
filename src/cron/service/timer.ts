@@ -143,6 +143,7 @@ export async function executeJob(
       const statusPrefix = status === "ok" ? prefix : `${prefix} (${status})`;
       state.deps.enqueueSystemEvent(`${statusPrefix}: ${body}`, {
         agentId: job.agentId,
+        tenantId: job.tenantId,
       });
       if (job.wakeMode === "now") {
         state.deps.requestHeartbeatNow({ reason: `cron:${job.id}:post` });
@@ -163,7 +164,7 @@ export async function executeJob(
         );
         return;
       }
-      state.deps.enqueueSystemEvent(text, { agentId: job.agentId });
+      state.deps.enqueueSystemEvent(text, { agentId: job.agentId, tenantId: job.tenantId });
       if (job.wakeMode === "now" && state.deps.runHeartbeatOnce) {
         const reason = `cron:${job.id}`;
         const delay = (ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms));

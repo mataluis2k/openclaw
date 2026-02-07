@@ -132,7 +132,8 @@ export async function runCronIsolatedAgentTurn(params: {
     mainKey: baseSessionKey,
   });
 
-  const workspaceDirRaw = resolveAgentWorkspaceDir(params.cfg, agentId);
+  const tenantId = params.job.tenantId;
+  const workspaceDirRaw = resolveAgentWorkspaceDir(params.cfg, agentId, tenantId);
   const agentDir = resolveAgentDir(params.cfg, agentId);
   const workspace = await ensureAgentWorkspace({
     dir: workspaceDirRaw,
@@ -200,6 +201,7 @@ export async function runCronIsolatedAgentTurn(params: {
     sessionKey: agentSessionKey,
     agentId,
     nowMs: now,
+    tenantId,
   });
 
   // Resolve thinking level - job thinking > hooks.gmail.thinking > agent default
@@ -321,7 +323,12 @@ export async function runCronIsolatedAgentTurn(params: {
   let fallbackProvider = provider;
   let fallbackModel = model;
   try {
-    const sessionFile = resolveSessionTranscriptPath(cronSession.sessionEntry.sessionId, agentId);
+    const sessionFile = resolveSessionTranscriptPath(
+      cronSession.sessionEntry.sessionId,
+      agentId,
+      undefined,
+      tenantId,
+    );
     const resolvedVerboseLevel =
       normalizeVerboseLevel(cronSession.sessionEntry.verboseLevel) ??
       normalizeVerboseLevel(agentCfg?.verboseDefault) ??

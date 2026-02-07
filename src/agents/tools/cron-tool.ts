@@ -1,6 +1,7 @@
 import { Type } from "@sinclair/typebox";
 import { loadConfig } from "../../config/config.js";
 import { normalizeCronJobCreate, normalizeCronJobPatch } from "../../cron/normalize.js";
+import { extractTenantId } from "../../routing/session-key.js";
 import { truncateUtf16Safe } from "../../utils.js";
 import { resolveSessionAgentId } from "../agent-scope.js";
 import { optionalStringEnum, stringEnum } from "../schema/typebox.js";
@@ -232,6 +233,13 @@ Use jobId as the canonical identifier; id is accepted for compatibility. Use con
               : undefined;
             if (agentId) {
               (job as { agentId?: string }).agentId = agentId;
+            }
+          }
+          // Capture tenant ownership from the current session key.
+          if (job && typeof job === "object" && !("tenantId" in job) && opts?.agentSessionKey) {
+            const tid = extractTenantId(opts.agentSessionKey);
+            if (tid && tid !== "default") {
+              (job as { tenantId?: string }).tenantId = tid;
             }
           }
           const contextMessages =

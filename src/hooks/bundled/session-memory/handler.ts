@@ -12,7 +12,7 @@ import { fileURLToPath } from "node:url";
 import type { OpenClawConfig } from "../../../config/config.js";
 import type { HookHandler } from "../../hooks.js";
 import { resolveAgentWorkspaceDir } from "../../../agents/agent-scope.js";
-import { resolveAgentIdFromSessionKey } from "../../../routing/session-key.js";
+import { extractTenantId, resolveAgentIdFromSessionKey } from "../../../routing/session-key.js";
 import { resolveHookConfig } from "../../config.js";
 
 /**
@@ -74,8 +74,9 @@ const saveSessionToMemory: HookHandler = async (event) => {
     const context = event.context || {};
     const cfg = context.cfg as OpenClawConfig | undefined;
     const agentId = resolveAgentIdFromSessionKey(event.sessionKey);
+    const tenantId = extractTenantId(event.sessionKey);
     const workspaceDir = cfg
-      ? resolveAgentWorkspaceDir(cfg, agentId)
+      ? resolveAgentWorkspaceDir(cfg, agentId, tenantId)
       : path.join(os.homedir(), ".openclaw", "workspace");
     const memoryDir = path.join(workspaceDir, "memory");
     await fs.mkdir(memoryDir, { recursive: true });

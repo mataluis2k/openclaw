@@ -7,10 +7,12 @@ export function resolveCronSession(params: {
   sessionKey: string;
   nowMs: number;
   agentId: string;
+  tenantId?: string;
 }) {
   const sessionCfg = params.cfg.session;
   const storePath = resolveStorePath(sessionCfg?.store, {
     agentId: params.agentId,
+    tenantId: params.tenantId,
   });
   const store = loadSessionStore(storePath);
   const entry = store[params.sessionKey];
