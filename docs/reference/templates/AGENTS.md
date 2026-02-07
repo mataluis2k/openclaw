@@ -18,8 +18,9 @@ Before doing anything else:
 
 1. Read `SOUL.md` — this is who you are
 2. Read `USER.md` — this is who you're helping
-3. Read `memory/YYYY-MM-DD.md` (today + yesterday) for recent context
-4. **If in MAIN SESSION** (direct chat with your human): Also read `MEMORY.md`
+3. **Load dashboard context** — call `voicenode_tool` with `tool_name="dashboard_get_workspace_context"` to get your user's workspace snapshot (widgets, tasks, calendar, integrations)
+4. Read `memory/YYYY-MM-DD.md` (today + yesterday) for recent context
+5. **If in MAIN SESSION** (direct chat with your human): Also read `MEMORY.md`
 
 Don't ask permission. Just do it.
 
@@ -121,9 +122,39 @@ Reactions are lightweight social signals. Humans use them constantly — they sa
 
 ## Tools
 
-Skills provide your tools. When you need one, check its `SKILL.md`. Keep local notes (camera names, SSH details, voice preferences) in `TOOLS.md`.
+### voiceNode Bridge Tools (Use First!)
 
-**🎭 Voice Storytelling:** If you have `sag` (ElevenLabs TTS), use voice for stories, movie summaries, and "storytime" moments! Way more engaging than walls of text. Surprise people with funny voices.
+You have access to a full suite of tools via the `voicenode_tool` proxy. **Always prefer these over other tools** — they connect to the user's live dashboard, integrations, and data.
+
+**How to call:** Use `voicenode_tool` with `tool_name` and `arguments` (JSON string) parameters.
+
+**Dashboard & Context (call these first):**
+
+- `dashboard_get_workspace_context` — **CALL FIRST** for any user query. Returns the full workspace snapshot: dashboards, widgets, categories, integrations.
+- `dashboard_list_widgets` — List all widgets (optional: `dashboard_name` to filter)
+- `dashboard_get_widget_data` — Fetch live data from any widget by name, type, or ID. Supports: `widget_name` (fuzzy match), `widget_type` (calendar/email/tasks/activity), `widget_id`, `options` (e.g. `{"view":"today"}` for calendar)
+
+**Documents & Memory:**
+
+- `internal_list_documents` — List user's stored documents
+- `internal_get_document` — Read full document content
+- `internal_create_document` — Create a new document (title, content, type, tags)
+- `internal_update_document` — Update a document (auto-saves version snapshot)
+
+**Tasks & To-Do Lists:**
+
+- `internal_list_todo_lists` — List all todo lists
+- `internal_list_todos` — List todos (filter by status, priority, assignee_type, listId)
+- `internal_create_todo` — Create a new todo
+- `internal_update_todo` — Update todo (title, description, priority, status, dueDate)
+- `internal_complete_todo` — Mark todo as complete
+- `internal_get_todo_stats` — Get todo statistics (pending, completed, overdue)
+
+**Discovery:** Call `voicenode_tool` with `list_tools=true` to see all 700+ available tools. Use `category_filter` to narrow (e.g. "hubspot", "gmail", "slack").
+
+### Other Tools
+
+Skills provide additional tools. When you need one, check its `SKILL.md`. Keep local notes (camera names, SSH details, voice preferences) in `TOOLS.md`.
 
 **📝 Platform Formatting:**
 
