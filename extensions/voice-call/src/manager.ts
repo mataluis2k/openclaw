@@ -321,6 +321,13 @@ export class CallManager {
     }
   }
 
+  /** Remove a terminated call's event IDs from the global idempotency set. */
+  private cleanupProcessedEventIds(call: CallRecord): void {
+    for (const eventId of call.processedEventIds) {
+      this.processedEventIds.delete(eventId);
+    }
+  }
+
   private clearTranscriptWaiter(callId: CallId): void {
     const waiter = this.transcriptWaiters.get(callId);
     if (!waiter) {
@@ -447,6 +454,7 @@ export class CallManager {
       if (call.providerCallId) {
         this.providerCallIdMap.delete(call.providerCallId);
       }
+      this.cleanupProcessedEventIds(call);
 
       return { success: true };
     } catch (err) {
@@ -633,6 +641,7 @@ export class CallManager {
         if (call.providerCallId) {
           this.providerCallIdMap.delete(call.providerCallId);
         }
+        this.cleanupProcessedEventIds(call);
         break;
 
       case "call.error":
@@ -646,6 +655,7 @@ export class CallManager {
           if (call.providerCallId) {
             this.providerCallIdMap.delete(call.providerCallId);
           }
+          this.cleanupProcessedEventIds(call);
         }
         break;
     }

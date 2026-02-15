@@ -104,6 +104,20 @@ export function hasSystemEvents(sessionKey: string) {
   return (queues.get(key)?.queue.length ?? 0) > 0;
 }
 
+/** Evict session queues whose most recent event is older than the given TTL. */
+export function sweepSystemEventQueues(maxAgeMs = 10 * 60_000): number {
+  const now = Date.now();
+  let evicted = 0;
+  for (const [key, entry] of queues) {
+    const newest = entry.queue.length > 0 ? entry.queue[entry.queue.length - 1].ts : 0;
+    if (now - newest > maxAgeMs) {
+      queues.delete(key);
+      evicted++;
+    }
+  }
+  return evicted;
+}
+
 export function resetSystemEventsForTest() {
   queues.clear();
 }

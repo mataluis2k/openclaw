@@ -103,6 +103,21 @@ export function clearSessionStoreCacheForTest(): void {
   SESSION_STORE_CACHE.clear();
 }
 
+/** Evict expired entries from the session store cache. */
+export function sweepSessionStoreCache(): number {
+  if (!isSessionStoreCacheEnabled()) {
+    return 0;
+  }
+  let evicted = 0;
+  for (const [key, entry] of SESSION_STORE_CACHE) {
+    if (!isSessionStoreCacheValid(entry)) {
+      SESSION_STORE_CACHE.delete(key);
+      evicted++;
+    }
+  }
+  return evicted;
+}
+
 type LoadSessionStoreOptions = {
   skipCache?: boolean;
 };

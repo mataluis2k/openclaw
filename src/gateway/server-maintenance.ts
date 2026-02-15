@@ -1,6 +1,9 @@
 import type { HealthSummary } from "../commands/health.js";
 import type { ChatRunEntry } from "./server-chat.js";
 import type { DedupeEntry } from "./server-shared.js";
+import { sweepSessionManagerCache } from "../agents/pi-embedded-runner/session-manager-cache.js";
+import { sweepSessionStoreCache } from "../config/sessions/store.js";
+import { sweepSystemEventQueues } from "../infra/system-events.js";
 import { abortChatRunById, type ChatAbortControllerEntry } from "./chat-abort.js";
 import {
   DEDUPE_MAX,
@@ -134,6 +137,25 @@ export function startGatewayMaintenanceTimers(params: {
       params.chatRunBuffers.delete(runId);
       params.chatDeltaSentAt.delete(runId);
     }
+
+    // Prevent unbounded growth of agent run sequence tracking
+    const AGENT_RUN_SEQ_MAX = 10_000;
+    if (params.agentRunSeq.size > AGENT_RUN_SEQ_MAX) {
+      const excess = params.agentRunSeq.size - AGENT_RUN_SEQ_MAX;
+      let removed = 0;
+      for (const runId of params.agentRunSeq.keys()) {
+        params.agentRunSeq.delete(runId);
+        removed += 1;
+        if (removed >= excess) {
+          break;
+        }
+      }
+    }
+
+    // Evict expired entries from in-memory caches
+    sweepSessionManagerCache();
+    sweepSessionStoreCache();
+    sweepSystemEventQueues();
   }, 60_000);
 
   return { tickInterval, healthInterval, dedupeCleanup };

@@ -45,6 +45,23 @@ function isSessionManagerCached(sessionFile: string): boolean {
   return now - entry.loadedAt <= ttl;
 }
 
+/** Evict expired entries from the session manager cache. */
+export function sweepSessionManagerCache(): number {
+  if (!isSessionManagerCacheEnabled()) {
+    return 0;
+  }
+  const now = Date.now();
+  const ttl = getSessionManagerTtl();
+  let evicted = 0;
+  for (const [key, entry] of SESSION_MANAGER_CACHE) {
+    if (now - entry.loadedAt > ttl) {
+      SESSION_MANAGER_CACHE.delete(key);
+      evicted++;
+    }
+  }
+  return evicted;
+}
+
 export async function prewarmSessionFile(sessionFile: string): Promise<void> {
   if (!isSessionManagerCacheEnabled()) {
     return;
