@@ -103,6 +103,7 @@ type RunPreparedReplyParams = {
   storePath?: string;
   workspaceDir: string;
   abortedLastRun: boolean;
+  tenantContext?: import("../../agents/tenant-paths.js").TenantPathContext;
 };
 
 export async function runPreparedReply(
@@ -376,6 +377,7 @@ export async function runPreparedReply(
       senderName: sessionCtx.SenderName?.trim() || undefined,
       senderUsername: sessionCtx.SenderUsername?.trim() || undefined,
       senderE164: sessionCtx.SenderE164?.trim() || undefined,
+      tenantContext: params.tenantContext,
       sessionFile,
       workspaceDir,
       config: cfg,

@@ -224,6 +224,7 @@ export async function runEmbeddedAttempt(
           senderName: params.senderName,
           senderUsername: params.senderUsername,
           senderE164: params.senderE164,
+          tenantContext: params.tenantContext,
           sessionKey: params.sessionKey ?? params.sessionId,
           agentDir,
           workspaceDir: effectiveWorkspace,

@@ -157,6 +157,8 @@ export function createOpenClawCodingTools(options?: {
   hasRepliedRef?: { value: boolean };
   /** If true, the model has native vision capability */
   modelHasVision?: boolean;
+  /** Tenant context for multi-tenant path isolation */
+  tenantContext?: import("./tenant-paths.js").TenantPathContext;
 }): AnyAgentTool[] {
   const execToolName = "exec";
   const sandbox = options?.sandbox?.enabled ? options.sandbox : undefined;
@@ -235,10 +237,11 @@ export function createOpenClawCodingTools(options?: {
       allowModels: applyPatchConfig?.allowModels,
     });
 
+  const tenantContext = options?.tenantContext;
   const base = (codingTools as unknown as AnyAgentTool[]).flatMap((tool) => {
     if (tool.name === readTool.name) {
       if (sandboxRoot) {
-        return [createSandboxedReadTool(sandboxRoot)];
+        return [createSandboxedReadTool(sandboxRoot, tenantContext)];
       }
       const freshReadTool = createReadTool(workspaceRoot);
       return [createOpenClawReadTool(freshReadTool)];
@@ -308,7 +311,10 @@ export function createOpenClawCodingTools(options?: {
     ...base,
     ...(sandboxRoot
       ? allowWorkspaceWrites
-        ? [createSandboxedEditTool(sandboxRoot), createSandboxedWriteTool(sandboxRoot)]
+        ? [
+            createSandboxedEditTool(sandboxRoot, tenantContext),
+            createSandboxedWriteTool(sandboxRoot, tenantContext),
+          ]
         : []
       : []),
     ...(applyPatchTool ? [applyPatchTool as unknown as AnyAgentTool] : []),

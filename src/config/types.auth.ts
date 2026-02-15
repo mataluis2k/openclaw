@@ -10,6 +10,13 @@ export type AuthProfileConfig = {
   email?: string;
 };
 
+export type UserRoleConfig = {
+  /** User identifier (E.164 phone, email, username, senderId, etc.) */
+  userId: string;
+  /** User role: superAdmin (full access) or user (tenant-scoped) */
+  role: "superAdmin" | "user";
+};
+
 export type AuthConfig = {
   profiles?: Record<string, AuthProfileConfig>;
   order?: Record<string, string[]>;
@@ -26,4 +33,10 @@ export type AuthConfig = {
      */
     failureWindowHours?: number;
   };
+  /**
+   * Role-based access control for multi-tenant security.
+   * Maps user identifiers to roles (superAdmin or user).
+   * SuperAdmins can access all files; regular users are confined to their tenant directories.
+   */
+  roles?: UserRoleConfig[];
 };

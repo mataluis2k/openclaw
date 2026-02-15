@@ -31,6 +31,8 @@ export type EmbeddedRunAttemptParams = {
   senderName?: string | null;
   senderUsername?: string | null;
   senderE164?: string | null;
+  /** Tenant context for multi-tenant path isolation */
+  tenantContext?: import("../../tenant-paths.js").TenantPathContext;
   currentChannelId?: string;
   currentThreadTs?: string;
   replyToMode?: "off" | "first" | "all";

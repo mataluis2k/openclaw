@@ -3,6 +3,7 @@ import { createEditTool, createReadTool, createWriteTool } from "@mariozechner/p
 import type { AnyAgentTool } from "./pi-tools.types.js";
 import { detectMime } from "../media/mime.js";
 import { assertSandboxPath } from "./sandbox-paths.js";
+import { assertTenantPath, type TenantPathContext } from "./tenant-paths.js";
 import { sanitizeToolResultImages } from "./tool-images.js";
 
 // NOTE(steipete): Upstream read now does file-magic MIME detection; we keep the wrapper
@@ -251,7 +252,11 @@ export function wrapToolParamNormalization(
   };
 }
 
-function wrapSandboxPathGuard(tool: AnyAgentTool, root: string): AnyAgentTool {
+function wrapSandboxPathGuard(
+  tool: AnyAgentTool,
+  root: string,
+  tenantContext?: TenantPathContext,
+): AnyAgentTool {
   return {
     ...tool,
     execute: async (toolCallId, args, signal, onUpdate) => {
@@ -261,26 +266,39 @@ function wrapSandboxPathGuard(tool: AnyAgentTool, root: string): AnyAgentTool {
         (args && typeof args === "object" ? (args as Record<string, unknown>) : undefined);
       const filePath = record?.path;
       if (typeof filePath === "string" && filePath.trim()) {
-        await assertSandboxPath({ filePath, cwd: root, root });
+        // Use tenant-aware path validation if tenant context is provided
+        if (tenantContext) {
+          await assertTenantPath({ filePath, cwd: root, root, tenantContext });
+        } else {
+          await assertSandboxPath({ filePath, cwd: root, root });
+        }
       }
       return tool.execute(toolCallId, normalized ?? args, signal, onUpdate);
     },
   };
 }
 
-export function createSandboxedReadTool(root: string) {
+export function createSandboxedReadTool(root: string, tenantContext?: TenantPathContext) {
   const base = createReadTool(root) as unknown as AnyAgentTool;
-  return wrapSandboxPathGuard(createOpenClawReadTool(base), root);
+  return wrapSandboxPathGuard(createOpenClawReadTool(base), root, tenantContext);
 }
 
-export function createSandboxedWriteTool(root: string) {
+export function createSandboxedWriteTool(root: string, tenantContext?: TenantPathContext) {
   const base = createWriteTool(root) as unknown as AnyAgentTool;
-  return wrapSandboxPathGuard(wrapToolParamNormalization(base, CLAUDE_PARAM_GROUPS.write), root);
+  return wrapSandboxPathGuard(
+    wrapToolParamNormalization(base, CLAUDE_PARAM_GROUPS.write),
+    root,
+    tenantContext,
+  );
 }
 
-export function createSandboxedEditTool(root: string) {
+export function createSandboxedEditTool(root: string, tenantContext?: TenantPathContext) {
   const base = createEditTool(root) as unknown as AnyAgentTool;
-  return wrapSandboxPathGuard(wrapToolParamNormalization(base, CLAUDE_PARAM_GROUPS.edit), root);
+  return wrapSandboxPathGuard(
+    wrapToolParamNormalization(base, CLAUDE_PARAM_GROUPS.edit),
+    root,
+    tenantContext,
+  );
 }
 
 export function createOpenClawReadTool(base: AnyAgentTool): AnyAgentTool {

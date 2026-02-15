@@ -1,4 +1,5 @@
 import process from "node:process";
+import { writeCrashLog } from "./crash-logger.js";
 import { extractErrorCode, formatUncaughtError } from "./errors.js";
 
 type UnhandledRejectionHandler = (reason: unknown) => boolean;
@@ -155,12 +156,26 @@ export function installUnhandledRejectionHandler(): void {
 
     if (isFatalError(reason)) {
       console.error("[openclaw] FATAL unhandled rejection:", formatUncaughtError(reason));
+      writeCrashLog({
+        error: reason,
+        errorType: "unhandledRejection",
+        isFatal: true,
+      }).catch(() => {
+        // Ignore crash log errors during fatal shutdown
+      });
       process.exit(1);
       return;
     }
 
     if (isConfigError(reason)) {
       console.error("[openclaw] CONFIGURATION ERROR - requires fix:", formatUncaughtError(reason));
+      writeCrashLog({
+        error: reason,
+        errorType: "unhandledRejection",
+        isFatal: true,
+      }).catch(() => {
+        // Ignore crash log errors during fatal shutdown
+      });
       process.exit(1);
       return;
     }
@@ -170,10 +185,25 @@ export function installUnhandledRejectionHandler(): void {
         "[openclaw] Non-fatal unhandled rejection (continuing):",
         formatUncaughtError(reason),
       );
+      // Log non-fatal errors but don't exit
+      writeCrashLog({
+        error: reason,
+        errorType: "unhandledRejection",
+        isFatal: false,
+      }).catch(() => {
+        // Ignore crash log errors
+      });
       return;
     }
 
     console.error("[openclaw] Unhandled promise rejection:", formatUncaughtError(reason));
+    writeCrashLog({
+      error: reason,
+      errorType: "unhandledRejection",
+      isFatal: true,
+    }).catch(() => {
+      // Ignore crash log errors during fatal shutdown
+    });
     process.exit(1);
   });
 }

@@ -148,6 +148,11 @@ export async function startGatewayServer(
   port = 18789,
   opts: GatewayServerOptions = {},
 ): Promise<GatewayServer> {
+  // Install error handlers early (defense in depth)
+  const { installUnhandledRejectionHandler } = await import("../infra/unhandled-rejections.js");
+  installUnhandledRejectionHandler();
+  log.debug("gateway: error handlers installed");
+
   // Ensure all default port derivations (browser/canvas) see the actual runtime port.
   process.env.OPENCLAW_GATEWAY_PORT = String(port);
   logAcceptedEnvOption({

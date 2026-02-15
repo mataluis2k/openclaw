@@ -74,6 +74,26 @@ export function startGatewayMaintenanceTimers(params: {
   // dedupe cache cleanup
   const dedupeCleanup = setInterval(() => {
     const now = Date.now();
+
+    // Memory monitoring
+    const heapUsed = process.memoryUsage().heapUsed;
+    const heapTotal = process.memoryUsage().heapTotal;
+    const percentUsed = (heapUsed / heapTotal) * 100;
+
+    // Check if approaching memory limit (configurable via env var)
+    const maxHeapMb = Number(process.env.OPENCLAW_MAX_HEAP_MB) || 4096;
+    const maxHeapBytes = maxHeapMb * 1024 * 1024;
+
+    if (heapUsed > maxHeapBytes * 0.9) {
+      params.logHealth.error(
+        `Memory critical: ${Math.round(percentUsed)}% used (${Math.round(heapUsed / 1024 / 1024)}MB / ${Math.round(heapTotal / 1024 / 1024)}MB). Consider increasing OPENCLAW_MAX_HEAP_MB or restarting.`,
+      );
+    } else if (heapUsed > maxHeapBytes * 0.75) {
+      console.warn(
+        `[openclaw] Memory warning: ${Math.round(percentUsed)}% used (${Math.round(heapUsed / 1024 / 1024)}MB / ${Math.round(heapTotal / 1024 / 1024)}MB)`,
+      );
+    }
+
     for (const [k, v] of params.dedupe) {
       if (now - v.ts > DEDUPE_TTL_MS) {
         params.dedupe.delete(k);

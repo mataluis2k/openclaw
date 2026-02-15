@@ -9,6 +9,7 @@ import { resolveModelRefFromString } from "../../agents/model-selection.js";
 import { resolveAgentTimeoutMs } from "../../agents/timeout.js";
 import { DEFAULT_AGENT_WORKSPACE_DIR, ensureAgentWorkspace } from "../../agents/workspace.js";
 import { type OpenClawConfig, loadConfig } from "../../config/config.js";
+import { resolveUserRole } from "../../config/user-roles.js";
 import { applyLinkUnderstanding } from "../../link-understanding/apply.js";
 import { applyMediaUnderstanding } from "../../media-understanding/apply.js";
 import { extractTenantId } from "../../routing/session-key.js";
@@ -105,6 +106,11 @@ export async function getReplyFromConfig(
     cfg,
     commandAuthorized,
   });
+  const userRole = resolveUserRole({ cfg, ctx: finalized });
+  const tenantContext = {
+    tenantId,
+    userRole,
+  };
   const sessionState = await initSessionState({
     ctx: finalized,
     cfg,
@@ -301,5 +307,6 @@ export async function getReplyFromConfig(
     storePath,
     workspaceDir,
     abortedLastRun,
+    tenantContext,
   });
 }
