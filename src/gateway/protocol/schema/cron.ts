@@ -131,6 +131,8 @@ export const CronAddParamsSchema = Type.Object(
   {
     name: NonEmptyString,
     agentId: Type.Optional(Type.Union([NonEmptyString, Type.Null()])),
+    /** Tenant that owns this job (multi-tenant isolation). */
+    tenantId: Type.Optional(NonEmptyString),
     description: Type.Optional(Type.String()),
     enabled: Type.Optional(Type.Boolean()),
     deleteAfterRun: Type.Optional(Type.Boolean()),
