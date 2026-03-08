@@ -130,6 +130,33 @@ export interface Pong {
   timestamp: string;
 }
 
+// ── Tenant Notifications (OpenClaw → voiceNode) ─────────────────────
+
+export interface TenantNotification {
+  type: "tenant.notification";
+  id: string;
+  timestamp: string;
+  context: {
+    tenantId: string;
+    userId?: string;
+  };
+  body: string;
+  title?: string;
+  messageType?: "notification" | "chat" | "alert" | "task_result";
+  priority?: number;
+  metadata?: Record<string, unknown>;
+}
+
+export interface TenantNotificationAck {
+  type: "tenant.notification.ack";
+  id: string;
+  timestamp: string;
+  notificationId: string;
+  queued: boolean;
+  delivered: boolean;
+  messageId: string;
+}
+
 // ── Error ───────────────────────────────────────────────────────────
 
 export type ErrorCode =
@@ -139,7 +166,8 @@ export type ErrorCode =
   | "TOOL_EXECUTION_ERROR"
   | "AGENT_ERROR"
   | "TIMEOUT"
-  | "INVALID_MESSAGE";
+  | "INVALID_MESSAGE"
+  | "NOTIFICATION_FAILED";
 
 export interface ErrorMessage {
   type: "error";
@@ -162,6 +190,8 @@ export type BridgeMessage =
   | ToolResult
   | ToolsListRequest
   | ToolsListResponse
+  | TenantNotification
+  | TenantNotificationAck
   | Ping
   | Pong
   | ErrorMessage;

@@ -16,6 +16,7 @@ import type {
   ChatRequest,
   ToolResult,
   ToolsListResponse,
+  TenantNotificationAck,
   ToolDefinition,
   ErrorCode,
 } from "./protocol.js";
@@ -24,6 +25,12 @@ import { buildTenantSessionKey } from "../../../src/routing/session-key.js";
 
 interface PendingToolCall {
   resolve: (value: unknown) => void;
+  reject: (reason: Error) => void;
+  timer: ReturnType<typeof setTimeout>;
+}
+
+interface PendingNotification {
+  resolve: (value: { queued: boolean; delivered: boolean; messageId: string }) => void;
   reject: (reason: Error) => void;
   timer: ReturnType<typeof setTimeout>;
 }
@@ -47,6 +54,7 @@ export class BridgeServer {
   private authenticated = false;
   private sessionId: string | null = null;
   private pendingToolCalls = new Map<string, PendingToolCall>();
+  private pendingNotifications = new Map<string, PendingNotification>();
   private pingInterval: ReturnType<typeof setInterval> | null = null;
 
   // Dynamic tool list from voiceNode
@@ -89,12 +97,18 @@ export class BridgeServer {
   async stop(): Promise<void> {
     this.stopPing();
 
-    // Reject all pending tool calls
+    // Reject all pending tool calls and notifications
     for (const [, pending] of this.pendingToolCalls) {
       clearTimeout(pending.timer);
       pending.reject(new Error("Bridge shutting down"));
     }
     this.pendingToolCalls.clear();
+
+    for (const [, pending] of this.pendingNotifications) {
+      clearTimeout(pending.timer);
+      pending.reject(new Error("Bridge shutting down"));
+    }
+    this.pendingNotifications.clear();
 
     if (this.client) {
       this.client.close(1001, "Server shutting down");
@@ -162,6 +176,12 @@ export class BridgeServer {
         pending.reject(new Error("Client disconnected"));
       }
       this.pendingToolCalls.clear();
+
+      for (const [, pending] of this.pendingNotifications) {
+        clearTimeout(pending.timer);
+        pending.reject(new Error("Client disconnected"));
+      }
+      this.pendingNotifications.clear();
     });
 
     ws.on("error", (err: Error) => {
@@ -202,6 +222,9 @@ export class BridgeServer {
         break;
       case "tools.list.response":
         this.handleToolsListResponse(msg as ToolsListResponse);
+        break;
+      case "tenant.notification.ack":
+        this.handleNotificationAck(msg as TenantNotificationAck);
         break;
       case "ping":
         this.send({
@@ -370,6 +393,67 @@ export class BridgeServer {
     } else {
       pending.reject(new Error(msg.result.error || "Tool execution failed"));
     }
+  }
+
+  // ── Tenant notifications (OpenClaw → voiceNode) ────────────────
+
+  async sendNotification(params: {
+    tenantId: string;
+    userId?: string;
+    body: string;
+    title?: string;
+    messageType?: "notification" | "chat" | "alert" | "task_result";
+    priority?: number;
+    metadata?: Record<string, unknown>;
+  }): Promise<{ queued: boolean; delivered: boolean; messageId: string }> {
+    if (!this.client || !this.authenticated) {
+      throw new Error("voiceNode client not connected");
+    }
+
+    const notificationId = crypto.randomUUID();
+
+    return new Promise((resolve, reject) => {
+      const timer = setTimeout(() => {
+        this.pendingNotifications.delete(notificationId);
+        reject(new Error("Notification acknowledgment timed out (30s)"));
+      }, 30000);
+
+      this.pendingNotifications.set(notificationId, { resolve, reject, timer });
+
+      this.send({
+        type: "tenant.notification",
+        id: notificationId,
+        timestamp: new Date().toISOString(),
+        context: {
+          tenantId: params.tenantId,
+          userId: params.userId,
+        },
+        body: params.body,
+        title: params.title,
+        messageType: params.messageType || "notification",
+        priority: params.priority || 0,
+        metadata: params.metadata,
+      });
+    });
+  }
+
+  private handleNotificationAck(msg: TenantNotificationAck): void {
+    const pending = this.pendingNotifications.get(msg.notificationId);
+    if (!pending) {
+      this.logger.warn(
+        `Received notification ack for unknown notification ${msg.notificationId}`,
+      );
+      return;
+    }
+
+    clearTimeout(pending.timer);
+    this.pendingNotifications.delete(msg.notificationId);
+
+    pending.resolve({
+      queued: msg.queued,
+      delivered: msg.delivered,
+      messageId: msg.messageId,
+    });
   }
 
   // ── Tool allowlist ──────────────────────────────────────────────
