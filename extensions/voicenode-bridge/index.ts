@@ -357,16 +357,22 @@ Use list_tools=true to see all 700+ available tools.`,
       };
     });
 
-    // ── Hook: forward background agent results to voiceNode ────────
-    // When a cron or background task completes on a bridge session,
-    // send the result as a tenant.notification so voiceNode can
-    // deliver it to the user (or queue it for when they come online).
+    // ── Hook: forward background/cron agent results to voiceNode ────
+    // Only fires for background tasks (cron, hooks, etc.) — NOT for
+    // interactive chat which already delivers via chat.response.
     api.on("agent_end", async (event, ctx) => {
       if (!bridge?.isClientConnected()) return;
       if (!ctx.sessionKey) return;
 
-      // Only forward results for bridge sessions
-      if (!ctx.sessionKey.includes(":bridge:")) return;
+      // Skip interactive chat — responses are already delivered via chat.response.
+      // Interactive sessions have a messageProvider (e.g. "webchat", "whatsapp").
+      // Cron/background jobs have no messageProvider.
+      if (ctx.messageProvider) {
+        api.logger.info(
+          `[voicenode-bridge] Skipping agent_end notification for interactive session (provider=${ctx.messageProvider}, key=${ctx.sessionKey})`,
+        );
+        return;
+      }
 
       // Extract the last assistant message as the result text
       const messages = event.messages as Array<{ role?: string; content?: unknown }>;
@@ -392,17 +398,38 @@ Use list_tools=true to see all 700+ available tools.`,
 
       if (!resultText) return;
 
-      // Extract tenant/user from session key
-      const tenantId = extractTenantId(ctx.sessionKey);
+      // Extract tenant/user from session key.
+      // Bridge sessions: tenant:{tenantId}:agent:{agentId}:bridge:{userId}
+      // Cron sessions: agent:{agentId}:cron:{jobId} (no tenant prefix)
+      let tenantId = extractTenantId(ctx.sessionKey);
       let userId: string | undefined;
+
       const parsed = parseTenantSessionKey(ctx.sessionKey);
       if (parsed) {
+        // Tenant-prefixed key — extract userId from bridge segment
         const restParts = parsed.rest.split(":");
         const bridgeIdx = restParts.indexOf("bridge");
         if (bridgeIdx >= 0 && restParts.length > bridgeIdx + 1) {
           userId = restParts[bridgeIdx + 1];
         }
       }
+
+      // For cron jobs (session key like agent:main:cron:{jobId}),
+      // tenantId defaults to "default". Use the config's default tenant if available.
+      if (tenantId === "default" && ctx.sessionKey.includes(":cron:")) {
+        // Try to get tenantId from the config's tenant list
+        const tenants = (api.config as OpenClawConfig).tenants;
+        if (tenants && typeof tenants === "object") {
+          const tenantKeys = Object.keys(tenants);
+          if (tenantKeys.length === 1) {
+            tenantId = tenantKeys[0];
+          }
+        }
+      }
+
+      api.logger.info(
+        `[voicenode-bridge] Background task completed, forwarding notification (tenant=${tenantId}, user=${userId || "broadcast"}, key=${ctx.sessionKey})`,
+      );
 
       try {
         const ack = await bridge.sendNotification({
@@ -419,11 +446,11 @@ Use list_tools=true to see all 700+ available tools.`,
           },
         });
         api.logger.info(
-          `[voicenode-bridge] Forwarded agent result to voiceNode (tenant=${tenantId}, user=${userId}, delivered=${ack.delivered}, queued=${ack.queued})`,
+          `[voicenode-bridge] Forwarded background result to voiceNode (tenant=${tenantId}, user=${userId || "broadcast"}, delivered=${ack.delivered}, queued=${ack.queued})`,
         );
       } catch (err) {
         api.logger.error(
-          `[voicenode-bridge] Failed to forward agent result: ${err instanceof Error ? err.message : err}`,
+          `[voicenode-bridge] Failed to forward background result: ${err instanceof Error ? err.message : err}`,
         );
       }
     });
