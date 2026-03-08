@@ -21,7 +21,7 @@ import type {
   ErrorCode,
 } from "./protocol.js";
 import type { BridgeConfig } from "./config.js";
-import { buildTenantSessionKey } from "../../../src/routing/session-key.js";
+import { buildAgentMainSessionKey } from "../../../src/routing/session-key.js";
 
 interface PendingToolCall {
   resolve: (value: unknown) => void;
@@ -313,7 +313,7 @@ export class BridgeServer {
 
       const sessionKey =
         req.context.sessionId ||
-        buildTenantSessionKey({ tenantId, agentId, context: `bridge:${userId}` });
+        buildAgentMainSessionKey({ agentId, mainKey: `bridge:${tenantId}:${userId}` });
       const response = await this.gateway.sendChat(sessionKey, req.content);
 
       this.send({
