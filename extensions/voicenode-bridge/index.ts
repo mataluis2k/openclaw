@@ -357,6 +357,77 @@ Use list_tools=true to see all 700+ available tools.`,
       };
     });
 
+    // ── Hook: forward background agent results to voiceNode ────────
+    // When a cron or background task completes on a bridge session,
+    // send the result as a tenant.notification so voiceNode can
+    // deliver it to the user (or queue it for when they come online).
+    api.on("agent_end", async (event, ctx) => {
+      if (!bridge?.isClientConnected()) return;
+      if (!ctx.sessionKey) return;
+
+      // Only forward results for bridge sessions
+      if (!ctx.sessionKey.includes(":bridge:")) return;
+
+      // Extract the last assistant message as the result text
+      const messages = event.messages as Array<{ role?: string; content?: unknown }>;
+      let resultText = "";
+      for (let i = messages.length - 1; i >= 0; i--) {
+        const msg = messages[i];
+        if (msg.role === "assistant" && typeof msg.content === "string" && msg.content.trim()) {
+          resultText = msg.content.trim();
+          break;
+        }
+        // Handle structured content (array of content blocks)
+        if (msg.role === "assistant" && Array.isArray(msg.content)) {
+          const textParts = (msg.content as Array<{ type?: string; text?: string }>)
+            .filter((b) => b.type === "text" && b.text)
+            .map((b) => b.text!.trim())
+            .filter(Boolean);
+          if (textParts.length) {
+            resultText = textParts.join("\n\n");
+            break;
+          }
+        }
+      }
+
+      if (!resultText) return;
+
+      // Extract tenant/user from session key
+      const tenantId = extractTenantId(ctx.sessionKey);
+      let userId: string | undefined;
+      const parsed = parseTenantSessionKey(ctx.sessionKey);
+      if (parsed) {
+        const restParts = parsed.rest.split(":");
+        const bridgeIdx = restParts.indexOf("bridge");
+        if (bridgeIdx >= 0 && restParts.length > bridgeIdx + 1) {
+          userId = restParts[bridgeIdx + 1];
+        }
+      }
+
+      try {
+        const ack = await bridge.sendNotification({
+          tenantId,
+          userId,
+          body: resultText,
+          title: "Background Task Result",
+          messageType: "task_result",
+          metadata: {
+            sessionKey: ctx.sessionKey,
+            agentId: ctx.agentId,
+            success: event.success,
+            durationMs: event.durationMs,
+          },
+        });
+        api.logger.info(
+          `[voicenode-bridge] Forwarded agent result to voiceNode (tenant=${tenantId}, user=${userId}, delivered=${ack.delivered}, queued=${ack.queued})`,
+        );
+      } catch (err) {
+        api.logger.error(
+          `[voicenode-bridge] Failed to forward agent result: ${err instanceof Error ? err.message : err}`,
+        );
+      }
+    });
+
     registered = true;
     api.logger.info(
       `[voicenode-bridge] registered (enabled=${config.enabled}, port=${config.port}, tool=voicenode_tool)`,
