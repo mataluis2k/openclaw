@@ -364,15 +364,24 @@ Use list_tools=true to see all 700+ available tools.`,
       if (!bridge?.isClientConnected()) return;
       if (!ctx.sessionKey) return;
 
+      // Only forward results for bridge sessions
+      if (!ctx.sessionKey.includes(":bridge:") && !ctx.sessionKey.includes("cron:")) return;
+
       // Skip interactive chat — responses are already delivered via chat.response.
-      // Interactive sessions have a messageProvider (e.g. "webchat", "whatsapp").
-      // Cron/background jobs have no messageProvider.
-      if (ctx.messageProvider) {
-        api.logger.info(
-          `[voicenode-bridge] Skipping agent_end notification for interactive session (provider=${ctx.messageProvider}, key=${ctx.sessionKey})`,
-        );
+      // Interactive sessions use "webchat" as messageProvider.
+      // Heartbeat/cron runs use "heartbeat", "exec-event", or undefined.
+      const provider = ctx.messageProvider?.toLowerCase().trim();
+      const interactiveProviders = new Set([
+        "webchat", "whatsapp", "telegram", "discord", "slack",
+        "signal", "imessage", "line", "sms",
+      ]);
+      if (provider && interactiveProviders.has(provider)) {
         return;
       }
+
+      api.logger.info(
+        `[voicenode-bridge] Background/cron agent_end detected (provider=${provider || "none"}, key=${ctx.sessionKey})`,
+      );
 
       // Extract the last assistant message as the result text
       const messages = event.messages as Array<{ role?: string; content?: unknown }>;
