@@ -238,10 +238,19 @@ export function createOpenClawCodingTools(options?: {
     });
 
   const tenantContext = options?.tenantContext;
+  // Non-superAdmin tenant users must be jailed to their workspace even without Docker sandbox.
+  const isJailedTenant =
+    !!tenantContext?.tenantId &&
+    tenantContext.tenantId !== "default" &&
+    tenantContext.userRole !== "superAdmin";
   const base = (codingTools as unknown as AnyAgentTool[]).flatMap((tool) => {
     if (tool.name === readTool.name) {
       if (sandboxRoot) {
         return [createSandboxedReadTool(sandboxRoot, tenantContext)];
+      }
+      // Jail tenant users to their workspace even without Docker sandbox.
+      if (isJailedTenant) {
+        return [createSandboxedReadTool(workspaceRoot, tenantContext)];
       }
       const freshReadTool = createReadTool(workspaceRoot);
       return [createOpenClawReadTool(freshReadTool)];
@@ -253,6 +262,9 @@ export function createOpenClawCodingTools(options?: {
       if (sandboxRoot) {
         return [];
       }
+      if (isJailedTenant) {
+        return [];
+      }
       // Wrap with param normalization for Claude Code compatibility
       return [
         wrapToolParamNormalization(createWriteTool(workspaceRoot), CLAUDE_PARAM_GROUPS.write),
@@ -262,16 +274,21 @@ export function createOpenClawCodingTools(options?: {
       if (sandboxRoot) {
         return [];
       }
+      if (isJailedTenant) {
+        return [];
+      }
       // Wrap with param normalization for Claude Code compatibility
       return [wrapToolParamNormalization(createEditTool(workspaceRoot), CLAUDE_PARAM_GROUPS.edit)];
     }
     return [tool];
   });
   const { cleanupMs: cleanupMsOverride, ...execDefaults } = options?.exec ?? {};
+  // Deny shell execution entirely for jailed tenant users — exec can browse the host filesystem
+  // regardless of cwd, bypassing the tenant isolation applied to file read/write/edit tools.
   const execTool = createExecTool({
     ...execDefaults,
     host: options?.exec?.host ?? execConfig.host,
-    security: options?.exec?.security ?? execConfig.security,
+    security: isJailedTenant ? "deny" : (options?.exec?.security ?? execConfig.security),
     ask: options?.exec?.ask ?? execConfig.ask,
     node: options?.exec?.node ?? execConfig.node,
     pathPrepend: options?.exec?.pathPrepend ?? execConfig.pathPrepend,
@@ -316,7 +333,13 @@ export function createOpenClawCodingTools(options?: {
             createSandboxedWriteTool(sandboxRoot, tenantContext),
           ]
         : []
-      : []),
+      : isJailedTenant
+        ? [
+            // No Docker sandbox, but user is jailed — use workspace root as sandbox boundary.
+            createSandboxedEditTool(workspaceRoot, tenantContext),
+            createSandboxedWriteTool(workspaceRoot, tenantContext),
+          ]
+        : []),
     ...(applyPatchTool ? [applyPatchTool as unknown as AnyAgentTool] : []),
     execTool as unknown as AnyAgentTool,
     processTool as unknown as AnyAgentTool,
