@@ -64,6 +64,17 @@ export class BridgeServer {
     reject: (err: Error) => void;
   } | null = null;
 
+  // Queued notifications waiting for client to connect
+  private queuedNotifications: Array<{
+    tenantId: string;
+    userId?: string;
+    body: string;
+    title?: string;
+    messageType?: "notification" | "chat" | "alert" | "task_result";
+    priority?: number;
+    metadata?: Record<string, unknown>;
+  }> = [];
+
   private config: BridgeConfig;
   private gateway?: GatewayDispatcher;
   private logger: BridgeServerOptions["logger"];
@@ -293,6 +304,9 @@ export class BridgeServer {
       .catch((err) => {
         this.logger.warn(`Failed to get tools list from voiceNode: ${err.message}`);
       });
+
+    // Drain any notifications queued while client was disconnected
+    this.drainQueuedNotifications();
   }
 
   // ── Agent dispatch ──────────────────────────────────────────────
@@ -407,7 +421,12 @@ export class BridgeServer {
     metadata?: Record<string, unknown>;
   }): Promise<{ queued: boolean; delivered: boolean; messageId: string }> {
     if (!this.client || !this.authenticated) {
-      throw new Error("voiceNode client not connected");
+      // Queue for later delivery when client reconnects
+      this.queuedNotifications.push({ ...params });
+      this.logger.info(
+        `voiceNode client not connected, queued notification (tenant=${params.tenantId}, user=${params.userId || "broadcast"}, queue=${this.queuedNotifications.length})`,
+      );
+      return { queued: true, delivered: false, messageId: `pending-${crypto.randomUUID()}` };
     }
 
     const notificationId = crypto.randomUUID();
@@ -454,6 +473,20 @@ export class BridgeServer {
       delivered: msg.delivered,
       messageId: msg.messageId,
     });
+  }
+
+  // ── Drain queued notifications ─────────────────────────────────
+
+  private drainQueuedNotifications(): void {
+    if (this.queuedNotifications.length === 0) return;
+    const pending = [...this.queuedNotifications];
+    this.queuedNotifications = [];
+    this.logger.info(`Draining ${pending.length} queued notification(s) to connected voiceNode client`);
+    for (const params of pending) {
+      this.sendNotification(params).catch((err) => {
+        this.logger.warn(`Failed to drain queued notification: ${err instanceof Error ? err.message : err}`);
+      });
+    }
   }
 
   // ── Tool allowlist ──────────────────────────────────────────────

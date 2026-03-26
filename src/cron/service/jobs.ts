@@ -92,6 +92,7 @@ export function createJob(state: CronServiceState, input: CronJobCreate): CronJo
   const job: CronJob = {
     id,
     agentId: normalizeOptionalAgentId(input.agentId),
+    tenantId: input.tenantId,
     name: normalizeRequiredName(input.name),
     description: normalizeOptionalText(input.description),
     enabled: input.enabled,

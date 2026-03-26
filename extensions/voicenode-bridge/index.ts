@@ -21,6 +21,7 @@ import { INTERNAL_MESSAGE_CHANNEL } from "../../src/utils/message-channel.js";
 import { extractTenantId, parseTenantSessionKey } from "../../src/routing/session-key.js";
 import { BridgeServer } from "./src/bridge-server.js";
 import { loadConfig } from "./src/config.js";
+import { resolveCronStorePath } from "../../src/cron/store.js";
 
 let bridge: BridgeServer | null = null;
 let registered = false;
@@ -361,11 +362,8 @@ Use list_tools=true to see all 700+ available tools.`,
     // Only fires for background tasks (cron, hooks, etc.) — NOT for
     // interactive chat which already delivers via chat.response.
     api.on("agent_end", async (event, ctx) => {
-      if (!bridge?.isClientConnected()) return;
+      if (!bridge) return;
       if (!ctx.sessionKey) return;
-
-      // Only forward results for bridge sessions
-      if (!ctx.sessionKey.includes(":bridge:") && !ctx.sessionKey.includes("cron:")) return;
 
       // Skip interactive chat — responses are already delivered via chat.response.
       // Interactive sessions use "webchat" as messageProvider.
@@ -378,6 +376,16 @@ Use list_tools=true to see all 700+ available tools.`,
       if (provider && interactiveProviders.has(provider)) {
         return;
       }
+
+      // Forward results for:
+      // 1. Isolated cron jobs: session key contains "cron:" (e.g. agent:main:cron:{jobId})
+      // 2. Bridge background tasks: session key contains ":bridge:"
+      // 3. Tenant-scoped heartbeat runs: session key starts with "tenant:" and provider is non-interactive
+      //    (these are triggered by cron systemEvent jobs with tenantId set)
+      const isCronSession = ctx.sessionKey.includes("cron:");
+      const isBridgeSession = ctx.sessionKey.includes(":bridge:");
+      const isTenantHeartbeat = ctx.sessionKey.startsWith("tenant:") && !isBridgeSession;
+      if (!isCronSession && !isBridgeSession && !isTenantHeartbeat) return;
 
       api.logger.info(
         `[voicenode-bridge] Background/cron agent_end detected (provider=${provider || "none"}, key=${ctx.sessionKey})`,
@@ -423,16 +431,18 @@ Use list_tools=true to see all 700+ available tools.`,
         }
       }
 
-      // For cron jobs (session key like agent:main:cron:{jobId}),
-      // tenantId defaults to "default". Use the config's default tenant if available.
-      if (tenantId === "default" && ctx.sessionKey.includes(":cron:")) {
-        // Try to get tenantId from the config's tenant list
-        const tenants = (api.config as OpenClawConfig).tenants;
-        if (tenants && typeof tenants === "object") {
-          const tenantKeys = Object.keys(tenants);
-          if (tenantKeys.length === 1) {
-            tenantId = tenantKeys[0];
-          }
+      // For cron jobs, tenantId and userId are encoded directly in the session key:
+      //   cron:{jobId}:tenant:{tenantId}:user:{userId}
+      // This is reliable even when the job has deleteAfterRun (no jobs.json race).
+      if (isCronSession) {
+        const parts = ctx.sessionKey.split(":");
+        const tenantIdx = parts.indexOf("tenant");
+        if (tenantIdx >= 0 && parts.length > tenantIdx + 1) {
+          tenantId = parts[tenantIdx + 1];
+        }
+        const userIdx = parts.indexOf("user");
+        if (userIdx >= 0 && parts.length > userIdx + 1) {
+          userId = parts[userIdx + 1];
         }
       }
 
