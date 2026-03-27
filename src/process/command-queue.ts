@@ -68,6 +68,8 @@ function drainLane(lane: string) {
           diag.debug(
             `lane task done: lane=${lane} durationMs=${Date.now() - startTime} active=${state.active} queued=${state.queue.length}`,
           );
+          // Evict idle session lanes to prevent unbounded Map growth
+          evictIdleLane(lane, state);
           pump();
           entry.resolve(result);
         } catch (err) {
@@ -78,15 +80,27 @@ function drainLane(lane: string) {
               `lane task error: lane=${lane} durationMs=${Date.now() - startTime} error="${String(err)}"`,
             );
           }
+          // Evict idle session lanes to prevent unbounded Map growth
+          evictIdleLane(lane, state);
           pump();
           entry.reject(err);
         }
       })();
     }
     state.draining = false;
+    // Also evict when drain loop ends with nothing left
+    evictIdleLane(lane, state);
   };
 
   pump();
+}
+
+// Remove lane state from the Map once it's fully idle (no active tasks, no queued tasks).
+// Session lanes are created per-session and would otherwise accumulate forever.
+function evictIdleLane(lane: string, state: LaneState) {
+  if (state.active === 0 && state.queue.length === 0 && state.maxConcurrent === 1) {
+    lanes.delete(lane);
+  }
 }
 
 export function setCommandLaneConcurrency(lane: string, maxConcurrent: number) {

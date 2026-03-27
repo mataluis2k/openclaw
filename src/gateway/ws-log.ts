@@ -25,6 +25,21 @@ const wsInflightOptimized = new Map<string, number>();
 const wsInflightSince = new Map<string, number>();
 const wsLog = createSubsystemLogger("gateway/ws");
 
+// Sweep stale inflight entries every 60s to prevent unbounded growth from unanswered requests.
+const WS_INFLIGHT_STALE_MS = 5 * 60_000; // 5 minutes
+setInterval(() => {
+  const cutoff = Date.now() - WS_INFLIGHT_STALE_MS;
+  for (const [key, entry] of wsInflightCompact) {
+    if (entry.ts < cutoff) wsInflightCompact.delete(key);
+  }
+  for (const [key, ts] of wsInflightOptimized) {
+    if (ts < cutoff) wsInflightOptimized.delete(key);
+  }
+  for (const [key, ts] of wsInflightSince) {
+    if (ts < cutoff) wsInflightSince.delete(key);
+  }
+}, 60_000).unref();
+
 export function shortId(value: string): string {
   const s = value.trim();
   if (UUID_RE.test(s)) {

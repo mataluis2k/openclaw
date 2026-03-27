@@ -193,6 +193,14 @@ export class BridgeServer {
         pending.reject(new Error("Client disconnected"));
       }
       this.pendingNotifications.clear();
+
+      // Clean up pending tools list request to prevent timer/promise leak
+      if (this.toolsListPending) {
+        const timer = (this.toolsListPending as any).timer;
+        if (timer) clearTimeout(timer);
+        this.toolsListPending.reject(new Error("Client disconnected"));
+        this.toolsListPending = null;
+      }
     });
 
     ws.on("error", (err: Error) => {
@@ -421,7 +429,14 @@ export class BridgeServer {
     metadata?: Record<string, unknown>;
   }): Promise<{ queued: boolean; delivered: boolean; messageId: string }> {
     if (!this.client || !this.authenticated) {
-      // Queue for later delivery when client reconnects
+      // Queue for later delivery when client reconnects, with a cap to prevent unbounded growth.
+      const MAX_QUEUED_NOTIFICATIONS = 500;
+      if (this.queuedNotifications.length >= MAX_QUEUED_NOTIFICATIONS) {
+        this.logger.warn(
+          `Notification queue full (${MAX_QUEUED_NOTIFICATIONS}), dropping oldest notification`,
+        );
+        this.queuedNotifications.shift();
+      }
       this.queuedNotifications.push({ ...params });
       this.logger.info(
         `voiceNode client not connected, queued notification (tenant=${params.tenantId}, user=${params.userId || "broadcast"}, queue=${this.queuedNotifications.length})`,
