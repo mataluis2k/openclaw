@@ -341,8 +341,10 @@ export function createOpenClawCodingTools(options?: {
           ]
         : []),
     ...(applyPatchTool ? [applyPatchTool as unknown as AnyAgentTool] : []),
-    execTool as unknown as AnyAgentTool,
-    processTool as unknown as AnyAgentTool,
+    // Exclude exec and process tools entirely for jailed tenants — even a "deny" exec tool
+    // appears in the system prompt tool list, causing the LLM to attempt shell operations.
+    ...(isJailedTenant ? [] : [execTool as unknown as AnyAgentTool]),
+    ...(isJailedTenant ? [] : [processTool as unknown as AnyAgentTool]),
     // Channel docking: include channel-defined agent tools (login, etc.).
     ...listChannelAgentTools({ cfg: options?.config }),
     ...createOpenClawTools({

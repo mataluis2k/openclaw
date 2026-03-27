@@ -342,6 +342,10 @@ export async function runEmbeddedAttempt(
     });
     const ttsHint = params.config ? buildTtsSystemPromptHint(params.config) : undefined;
 
+    const isJailedTenant =
+      !!params.tenantContext?.tenantId &&
+      params.tenantContext.tenantId !== "default" &&
+      params.tenantContext.userRole !== "superAdmin";
     const appendPrompt = buildEmbeddedSystemPrompt({
       workspaceDir: effectiveWorkspace,
       defaultThinkLevel: params.thinkLevel,
@@ -356,6 +360,7 @@ export async function runEmbeddedAttempt(
       docsPath: docsPath ?? undefined,
       ttsHint,
       workspaceNotes,
+      isJailedTenant,
       reactionGuidance,
       promptMode,
       runtimeInfo,

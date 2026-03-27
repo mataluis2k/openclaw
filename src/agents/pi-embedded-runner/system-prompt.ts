@@ -23,6 +23,8 @@ export function buildEmbeddedSystemPrompt(params: {
     channel: string;
   };
   workspaceNotes?: string[];
+  /** When true, the agent is a jailed tenant with no filesystem access outside the workspace. */
+  isJailedTenant?: boolean;
   /** Controls which hardcoded sections to include. Defaults to "full". */
   promptMode?: PromptMode;
   runtimeInfo: {
@@ -59,6 +61,7 @@ export function buildEmbeddedSystemPrompt(params: {
     docsPath: params.docsPath,
     ttsHint: params.ttsHint,
     workspaceNotes: params.workspaceNotes,
+    isJailedTenant: params.isJailedTenant,
     reactionGuidance: params.reactionGuidance,
     promptMode: params.promptMode,
     runtimeInfo: params.runtimeInfo,

@@ -208,6 +208,8 @@ export function buildAgentSystemPrompt(params: {
       defaultLevel: "on" | "off" | "ask" | "full";
     };
   };
+  /** When true, the agent is a jailed tenant with no filesystem access outside the workspace. */
+  isJailedTenant?: boolean;
   /** Reaction guidance for the agent (for Telegram minimal/extensive modes). */
   reactionGuidance?: {
     level: "minimal" | "extensive";
@@ -434,7 +436,9 @@ export function buildAgentSystemPrompt(params: {
     params.modelAliasLines && params.modelAliasLines.length > 0 && !isMinimal ? "" : "",
     "## Workspace",
     `Your working directory is: ${params.workspaceDir}`,
-    "Treat this directory as the single global workspace for file operations unless explicitly instructed otherwise.",
+    params.isJailedTenant
+      ? "You are restricted to this directory ONLY. You cannot access, read, list, or browse any files or directories outside this workspace. Do not attempt to navigate to parent directories, system paths, or any location outside your workspace. You have no visibility into the host filesystem."
+      : "Treat this directory as the single global workspace for file operations unless explicitly instructed otherwise.",
     ...workspaceNotes,
     "",
     ...docsSection,

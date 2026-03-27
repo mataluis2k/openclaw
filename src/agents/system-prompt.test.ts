@@ -148,6 +148,27 @@ describe("buildAgentSystemPrompt", () => {
     );
   });
 
+  it("includes tenant isolation language for jailed tenants", () => {
+    const prompt = buildAgentSystemPrompt({
+      workspaceDir: "/tmp/openclaw/tenants/abc/workspace",
+      isJailedTenant: true,
+    });
+
+    expect(prompt).toContain("You are restricted to this directory ONLY");
+    expect(prompt).toContain("no visibility into the host filesystem");
+    expect(prompt).not.toContain("Treat this directory as the single global workspace");
+  });
+
+  it("uses default workspace language when not a jailed tenant", () => {
+    const prompt = buildAgentSystemPrompt({
+      workspaceDir: "/tmp/openclaw/workspace",
+      isJailedTenant: false,
+    });
+
+    expect(prompt).toContain("Treat this directory as the single global workspace");
+    expect(prompt).not.toContain("You are restricted to this directory ONLY");
+  });
+
   it("includes workspace notes when provided", () => {
     const prompt = buildAgentSystemPrompt({
       workspaceDir: "/tmp/openclaw",
