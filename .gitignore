@@ -71,3 +71,7 @@ USER.md
 
 # local tooling
 .serena/
+
+# Core dumps from gateway OOM crashes
+core
+core.*

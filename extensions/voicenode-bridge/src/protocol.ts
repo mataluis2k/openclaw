@@ -114,6 +114,10 @@ export interface ToolsListResponse {
   requestId: string;
   tools: ToolDefinition[];
   categories?: string[];
+  /** Total tools available via semantic search (find_and_call_tool) */
+  totalAvailable?: number;
+  /** System prompt instructions for using the semantic tool router */
+  toolInstructions?: string;
 }
 
 // ── Keepalive ───────────────────────────────────────────────────────

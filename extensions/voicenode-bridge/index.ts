@@ -192,26 +192,36 @@ const voicenodePlugin = {
       return {
         name: "voicenode_tool",
         label: "voiceNode Tool Proxy",
-        description: `Execute tools on the connected voiceNode platform.
+        description: `Execute tools on the connected voiceNode platform (1400+ tools available).
 
-**IMPORTANT FOR DASHBOARD/WIDGET QUERIES:**
-When user asks about their to-do lists, widgets, dashboards, or workspace data:
-1. FIRST call: tool_name="dashboard_get_workspace_context" (no arguments needed)
-   This returns all the user's widgets with human-friendly names like "Dinesh", "MyList", etc.
-2. THEN call: tool_name="dashboard_get_widget_data" with widget_name="<name from step 1>"
+**SEMANTIC TOOL ROUTER — How to find and use any tool:**
+voiceNode has a semantic search engine that finds the right tool from 1400+ available tools.
+Use tool_name="find_and_call_tool" with arguments containing an "intent" parameter.
 
-Example: User says "show my Dinesh list"
-1. Call dashboard_get_workspace_context to find available widgets
-2. Call dashboard_get_widget_data with widget_name="Dinesh"
+Step 1 — Discover tools (dry run):
+  tool_name="find_and_call_tool", arguments={"intent": "list Monday.com boards", "dry_run": true}
+  This returns matching tools with their parameter schemas.
 
-**OTHER TOOLS:**
-- Trading: alpaca_get_account, alpaca_get_positions, alpaca_place_order
-- CRM: hubspot_*, salesforce_*, apollo_*
-- E-commerce: shopify_*, amazon_*, stripe_*
-- Communication: sms_send, whatsapp_send, email_send, slack_send_message
-- Documents: copywriter_*, document_generate_pdf
+Step 2 — Execute the tool:
+  tool_name="find_and_call_tool", arguments={"intent": "list boards", "tool_name": "monday_list_boards", "arguments": {"limit": 25}}
 
-Use list_tools=true to see all 700+ available tools.`,
+Shortcut — if you know the tool name, call it directly:
+  tool_name="monday_list_boards", arguments={"limit": 25}
+
+**IMPORTANT: The "intent" parameter is REQUIRED when using find_and_call_tool.**
+Do NOT use "query", "description", or "search" — the parameter name must be "intent".
+
+**DASHBOARD/WIDGET QUERIES:**
+When user asks about widgets, dashboards, or workspace data:
+1. tool_name="dashboard_get_workspace_context" (no arguments needed)
+2. tool_name="dashboard_get_widget_data", arguments={"widget_name": "<name from step 1>"}
+
+**COMMON TOOL CATEGORIES:**
+monday (project management), stripe (payments), hubspot/salesforce (CRM),
+shopify/amazon (e-commerce), alpaca (trading), slack/sms/whatsapp/email (messaging),
+github (code), quickbooks (accounting), copywriter (content), jira/asana/trello (tasks)
+
+Use list_tools=true to see all available tools, or use find_and_call_tool to search semantically.`,
         parameters: Type.Object({
           tool_name: Type.Optional(
             Type.String({
