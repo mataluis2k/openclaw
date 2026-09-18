@@ -37,6 +37,7 @@ export interface ChatRequest {
     userId: string;
     personaId?: string;
     sessionId?: string;
+    agentId?: string;
   };
 }
 

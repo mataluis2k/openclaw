@@ -55,6 +55,8 @@ export type FollowupRun = {
     senderName?: string;
     senderUsername?: string;
     senderE164?: string;
+    /** Tenant context for multi-tenant filesystem isolation. */
+    tenantContext?: import("../../../agents/tenant-paths.js").TenantPathContext;
     sessionFile: string;
     workspaceDir: string;
     config: OpenClawConfig;

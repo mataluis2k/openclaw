@@ -21,7 +21,63 @@ import type {
   ErrorCode,
 } from "./protocol.js";
 import type { BridgeConfig } from "./config.js";
-import { buildTenantSessionKey } from "../../../src/routing/session-key.js";
+import {
+  buildTenantSessionKey,
+  parseTenantSessionKey,
+} from "../../../src/routing/session-key.js";
+
+/**
+ * A tenant id becomes a filesystem path (<stateDir>/tenants/<id>/workspace) and
+ * selects the agent's filesystem jail, so it must be path-safe. The literal
+ * "default" is special-cased by OpenClaw to mean "no tenant", which disables the
+ * jail and exposes the host filesystem — it must never be produced as a fallback.
+ */
+function sanitizeSegment(value: unknown): string | null {
+  if (typeof value !== "string") return null;
+  const cleaned = value
+    .trim()
+    .replace(/[^a-zA-Z0-9_-]+/g, "-")
+    .replace(/^-+|-+$/g, "")
+    .slice(0, 64);
+  return cleaned || null;
+}
+
+/**
+ * Resolve the tenant this request is jailed to. When voiceNode does not send an
+ * explicit tenantId we derive one from the session itself rather than falling
+ * back to "default": an unidentified caller gets a private workspace of its own
+ * rather than the host filesystem. Every branch yields a non-"default",
+ * path-safe id.
+ */
+function resolveTenantId(
+  context: { tenantId?: string; userId?: string; sessionId?: string },
+  bridgeSessionId: string | null,
+): { tenantId: string; source: string } {
+  const explicit = sanitizeSegment(context.tenantId);
+  if (explicit && explicit !== "default") {
+    return { tenantId: explicit, source: "explicit" };
+  }
+  // A tenant-scoped session key carries the tenant that opened the session.
+  const parsed =
+    typeof context.sessionId === "string" ? parseTenantSessionKey(context.sessionId.trim()) : null;
+  const fromSession = parsed ? sanitizeSegment(parsed.tenantId) : null;
+  if (fromSession && fromSession !== "default") {
+    return { tenantId: fromSession, source: "session-key" };
+  }
+  const bySession = sanitizeSegment(context.sessionId);
+  if (bySession) {
+    return { tenantId: `session-${bySession}`, source: "session-id" };
+  }
+  const byUser = sanitizeSegment(context.userId);
+  if (byUser) {
+    return { tenantId: `user-${byUser}`, source: "user-id" };
+  }
+  // Last resort: the bridge connection's own id. Always present after auth.
+  return {
+    tenantId: `bridge-${sanitizeSegment(bridgeSessionId) ?? "unidentified"}`,
+    source: "bridge-session",
+  };
+}
 
 interface PendingToolCall {
   resolve: (value: unknown) => void;
@@ -325,17 +381,37 @@ export class BridgeServer {
         throw new Error("No gateway dispatcher configured");
       }
 
-      const tenantId = req.context.tenantId || "default";
-      const userId = req.context.userId || "anonymous";
-      const agentId = req.context.agentId || "main";
+      const { tenantId, source: tenantSource } = resolveTenantId(
+        req.context,
+        this.sessionId,
+      );
+      const userId = sanitizeSegment(req.context.userId) ?? "anonymous";
+      const agentId = sanitizeSegment(req.context.agentId) ?? "main";
 
       this.logger.info(
-        `Dispatching chat request ${req.id} (tenant=${tenantId})`,
+        `Dispatching chat request ${req.id} (tenant=${tenantId}, via=${tenantSource})`,
       );
 
+      // A caller-supplied sessionId is honoured verbatim only when it is already
+      // a tenant-scoped key for THIS tenant. Otherwise it is folded into the
+      // context segment: used raw, a key without a "tenant:" prefix resolves to
+      // the "default" tenant, which turns the filesystem jail off entirely and
+      // lets the caller pick its own isolation boundary.
+      const suppliedSessionId =
+        typeof req.context.sessionId === "string" ? req.context.sessionId.trim() : "";
+      const parsedSupplied = suppliedSessionId
+        ? parseTenantSessionKey(suppliedSessionId)
+        : null;
       const sessionKey =
-        req.context.sessionId ||
-        buildTenantSessionKey({ tenantId, agentId, context: `bridge:${userId}` });
+        parsedSupplied && parsedSupplied.tenantId === tenantId
+          ? suppliedSessionId
+          : buildTenantSessionKey({
+              tenantId,
+              agentId,
+              context: suppliedSessionId
+                ? `bridge:${userId}:${sanitizeSegment(suppliedSessionId) ?? "session"}`
+                : `bridge:${userId}`,
+            });
       const response = await this.gateway.sendChat(sessionKey, req.content);
 
       this.send({

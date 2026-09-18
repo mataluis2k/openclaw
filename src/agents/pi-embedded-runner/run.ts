@@ -328,6 +328,7 @@ export async function runEmbeddedPiAgent(
             currentThreadTs: params.currentThreadTs,
             replyToMode: params.replyToMode,
             hasRepliedRef: params.hasRepliedRef,
+            tenantContext: params.tenantContext,
             sessionFile: params.sessionFile,
             workspaceDir: params.workspaceDir,
             agentDir,

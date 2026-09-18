@@ -39,6 +39,8 @@ export type RunEmbeddedPiAgentParams = {
   senderName?: string | null;
   senderUsername?: string | null;
   senderE164?: string | null;
+  /** Tenant context for multi-tenant filesystem isolation. */
+  tenantContext?: import("../../tenant-paths.js").TenantPathContext;
   /** Current channel ID for auto-threading (Slack). */
   currentChannelId?: string;
   /** Current thread timestamp for auto-threading (Slack). */
